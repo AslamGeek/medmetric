@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $repoUrl = 'https://github.com/AslamGeek/medmetric.git'
 $publisherPath = $env:MEDMETRIC_PUBLISHER
 $sourceDir = Split-Path -Parent $publisherPath
-$checkoutDir = Join-Path $sourceDir '.medmetric-publish'
+$checkoutDir = $sourceDir
 $logPath = Join-Path $sourceDir 'MedMetric-publish.log'
 $appFiles = @(
     'package.json',
@@ -35,9 +35,13 @@ $appFiles = @(
     'lib/api.js',
     'lib/sheets.js',
     'scripts/check-deployment.js',
-    'tests/api.test.js'
+    'tests/api.test.js',
+    'tests/backend.test.js',
+    'apps-script/Code.gs',
+    'apps-script/appsscript.json'
 )
 $publishFiles = $appFiles + @('Commit-and-Push.cmd')
+$legacyFiles = @('Code.gs', 'Index.html', 'Scripts.html', 'Styles.html', 'appsscript.json')
 $transcriptStarted = $false
 $resultCode = 1
 
@@ -62,19 +66,13 @@ try {
     }
     foreach ($name in $appFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $sourceDir $name) -PathType Leaf)) {
-            throw ('Missing ' + $name + '. Extract the complete Next.js ZIP and keep this CMD in its top-level folder.')
+            throw ('Missing ' + $name + '. Keep this CMD in the MedMetric project folder with its source files.')
         }
     }
 
-    # Use the source folder directly only if it is itself a checkout.
-    # Otherwise keep a dedicated clone beside the source files.
-    if (Test-Path -LiteralPath (Join-Path $sourceDir '.git')) {
-        $checkoutDir = $sourceDir
-    } elseif (-not (Test-Path -LiteralPath $checkoutDir)) {
-        Write-Host 'Cloning repository...'
-        Invoke-Git -GitArgs @('clone', '--', $repoUrl, $checkoutDir)
-    } elseif (-not (Test-Path -LiteralPath (Join-Path $checkoutDir '.git'))) {
-        throw ('The publishing folder exists but is not a Git checkout: ' + $checkoutDir + '. Its contents have been preserved. Rename that folder and retry.')
+    # This project is the checkout. Never create another copy.
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceDir '.git'))) {
+        throw 'The MedMetric project Git metadata is missing. Restore it before publishing.'
     }
 
     Set-Location -LiteralPath $checkoutDir
@@ -94,7 +92,7 @@ try {
 
     $staged = @(& git diff --cached --name-only)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect staged changes.' }
-    $otherStaged = @($staged | Where-Object { $_ -notin $publishFiles })
+    $otherStaged = @($staged | Where-Object { $_ -notin ($publishFiles + $legacyFiles) })
     if ($otherStaged.Count -gt 0) {
         throw ('Other files are already staged. Unstage or commit them separately before using this source-only publisher: ' + ($otherStaged -join ', '))
     }
@@ -109,22 +107,21 @@ try {
         throw 'Cannot inspect the remote branch.'
     }
 
-    if ($checkoutDir -ne $sourceDir) {
-        foreach ($name in $publishFiles) {
-            $targetFile = Join-Path $checkoutDir $name
-            $targetParent = Split-Path -Parent $targetFile
-            New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination $targetFile -Force
+    # Include removal of the retired local implementation on the next publish.
+    $trackedLegacy = @(& git ls-files -- $legacyFiles)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect retired source files.' }
+    foreach ($name in $trackedLegacy) {
+        if (Test-Path -LiteralPath (Join-Path $sourceDir $name)) {
+            throw ('Retired source file has reappeared: ' + $name + '. Review it before publishing.')
         }
     }
-
-    # Obsolete Apps Script files remain in history and are ignored by Next.js.
+    $publishPaths = $publishFiles + $trackedLegacy
     # No sheet snapshots, .env values, node_modules or build output are staged.
     Write-Host ''
     Write-Host 'Files to publish:' -ForegroundColor Cyan
-    Invoke-Git -GitArgs (@('status', '--short', '--') + $publishFiles)
-    Invoke-Git -GitArgs (@('diff', '--stat', '--') + $publishFiles)
-    Invoke-Git -GitArgs (@('add', '--') + $publishFiles)
+    Invoke-Git -GitArgs (@('status', '--short', '--') + $publishPaths)
+    Invoke-Git -GitArgs (@('diff', '--stat', '--') + $publishPaths)
+    Invoke-Git -GitArgs (@('add', '-A', '--') + $publishPaths)
     & git diff --cached --quiet
     $diffCode = $LASTEXITCODE
     if ($diffCode -eq 1) {

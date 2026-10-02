@@ -1,9 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import Script from 'next/script';
 import ChartPanel, { compact, exact, monthLabel, DataTable } from './ChartPanel.jsx';
 
-const scope = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const productLink = (label, action) => <button type="button" onClick={action}>{label}</button>;
 const numeric = (label,key,currency=false) => ({ label,numeric:true,render:r => exact(r[key],currency) });
 async function api(path, token, body, signal) {
@@ -15,7 +13,7 @@ async function api(path, token, body, signal) {
 }
 
 export default function Dashboard() {
-  const [config,setConfig] = useState(null), [googleReady,setGoogleReady] = useState(false);
+  const [config,setConfig] = useState(null), [accessCode,setAccessCode] = useState('');
   const [token,setToken] = useState(''), [authBusy,setAuthBusy] = useState(false);
   const [data,setData] = useState(null), [filters,setFilters] = useState({}), [refresh,setRefresh] = useState(0);
   const [loading,setLoading] = useState(false), [error,setError] = useState('');
@@ -57,22 +55,10 @@ export default function Dashboard() {
   function disconnect() {
     authGeneration.current++; clearTimeout(expiration.current); setToken('');setData(null);setDrill(null);setDrillData(null);setAuthBusy(false);setLoading(false);
   }
-  function connect() {
-    if(!config?.configured || !window.google?.accounts?.oauth2)return;
-    setAuthBusy(true);setError('');const generation=++authGeneration.current;
-    try {
-      const client=window.google.accounts.oauth2.initTokenClient({ client_id:config.clientId, scope, include_granted_scopes:false,
-        callback:response => {
-          if(generation!==authGeneration.current)return;
-          setAuthBusy(false);
-          if(response.error || !response.access_token) { setError('Google authorization was not completed. Try connecting again.');return; }
-          if(!window.google.accounts.oauth2.hasGrantedAllScopes(response,scope)) { setError('Read-only Google Sheets permission is required to load this dashboard.');return; }
-          clearTimeout(expiration.current);setData(null);setFilters({});setToken(response.access_token);
-          expiration.current=setTimeout(() => { disconnect();setError('Your Google connection expired. Connect again to continue.'); },Math.max(1,(Number(response.expires_in)||3600)-30)*1000);
-        }, error_callback:() => { if(generation===authGeneration.current){setAuthBusy(false);setError('The Google popup was closed or blocked. Allow popups and try again.');} }
-      });
-      client.requestAccessToken({ prompt:'select_account' });
-    } catch { setAuthBusy(false);setError('Google sign-in could not open. Refresh and try again.'); }
+  function connect(event) {
+    event.preventDefault();
+    if(!config?.configured || !accessCode.trim())return;
+    setError('');setData(null);setFilters({});setToken(accessCode.trim());setAccessCode('');
   }
   function update(patch) {
     const f={...data?.filters,...patch};
@@ -93,12 +79,11 @@ export default function Dashboard() {
   if(!financial)drillColumns.push({label:'Source line',key:'sourceLine'});
 
   return <>
-    <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={()=>setGoogleReady(true)} onError={()=>setError('Google sign-in could not load. Check your network and refresh.')} />
-    <header className="topbar"><a className="identity" href="#overview" aria-label="MedMetric overview"><span className="mark" aria-hidden="true">m<span>•</span></span><span>MEDMETRIC<span className="identity-sub">MedMetric SALES INTELLIGENCE</span></span></a><nav aria-label="Dashboard sections"><a className="active" href="#overview">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav><div className="account-actions"><span className="readonly"><span />Read-only workspace</span>{token && <button className="text-button" onClick={disconnect}>Disconnect</button>}</div></header>
+    <header className="topbar"><a className="identity" href="#overview" aria-label="MedMetric overview"><span className="mark" aria-hidden="true">m<span>•</span></span><span>MEDMETRIC<span className="identity-sub">SALES INTELLIGENCE</span></span></a><nav aria-label="Dashboard sections"><a className="active" href="#overview">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav><div className="account-actions"><span className="readonly"><span />Read-only workspace</span>{token && <button className="text-button" onClick={disconnect}>Disconnect</button>}</div></header>
     <main id="overview">
       <div className="page-heading"><div><p className="eyebrow">A CLEARER VIEW OF YOUR BUSINESS</p><h1>MedMetric Sales Intelligence</h1><p className="subtitle">Agency Stock &amp; Sales Analytics</p></div>{token && <div className="heading-actions"><span className="muted">{data?'Loaded '+new Date(data.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Reading your sheet'}</span><button className="button" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>↻ &nbsp; Refresh data</button></div>}</div>
       {error && <div className="message error" role="alert">{error}</div>}
-      {!token && <section className="panel connection-panel"><span className="tag">PRIVATE WORKSPACE</span><h2>Your data. Your Google access.</h2><p>Connect the Google account you use for the source spreadsheet. Your spreadsheet stays private and read-only.</p><button className="button connect-button" onClick={connect} disabled={!config?.configured || !googleReady || authBusy}>{authBusy?'Waiting for Google…':'Connect with Google'}</button><p className="scope-note">Only accounts that already have access to the source sheet can view its data. Disconnecting clears this page&apos;s data.</p>{config && !config.configured && <div className="setup-note"><strong>Google connection needs one-time setup</strong><p>The app is running. Add your Google OAuth web client ID as <code>GOOGLE_CLIENT_ID</code> in this Vercel project, authorize this site&apos;s origin in Google Cloud, then redeploy. No client secret is required.</p></div>}{!config && !error && <p role="status">Loading connection settings…</p>}</section>}
+      {!token && <section className="panel connection-panel"><span className="tag">PRIVATE WORKSPACE</span><h2>Your sales, in one place.</h2><p>Enter your private access code to open your dashboard.</p><form onSubmit={connect}><label htmlFor="access-code">Access code</label><input id="access-code" type="password" autoComplete="current-password" value={accessCode} onChange={e=>setAccessCode(e.target.value)} required /><button className="button connect-button" type="submit" disabled={!config?.configured || !accessCode.trim()}>Open dashboard</button></form><p className="scope-note">Your spreadsheet stays private and read-only.</p>{config && !config.configured && <p role="status">The data connection is being configured. Please try again shortly.</p>}{!config && !error && <p role="status">Loading connection…</p>}</section>}
       {token && !data && <section className="panel"><p role="status">{loading?'Reading agency statements and product mappings…':'No data loaded yet.'}</p>{!loading && <button className="button" onClick={()=>setRefresh(v=>v+1)}>Retry</button>}</section>}
       {token && data && <>
         <fieldset className="filters" disabled={loading} aria-label="Dashboard filters">
@@ -131,7 +116,7 @@ export default function Dashboard() {
             <article className="panel"><div className="panel-header"><div><h2>Slow / no movement candidates</h2><p>Positive closing quantity · individual stock observations</p></div><span className="count">{data.candidateCount}</span></div><form className="thresholds" onSubmit={e=>{e.preventDefault();update({maxUnits:maxUnits===''?0:Number(maxUnits),minAge:minAge===''?null:Number(minAge)});}}><label>Units sold ≤<input type="number" min="0" step="any" value={maxUnits} onChange={e=>setMaxUnits(e.target.value)}/></label><label>Stock age ≥<input type="number" min="0" step="any" placeholder="Any" value={minAge} onChange={e=>setMinAge(e.target.value)}/></label><button type="submit" className="button" disabled={loading}>Apply</button></form><p className="scope-note">Age is shown as recorded in the sheet; its unit is not assumed.</p><div className="candidates"><DataTable columns={[{label:'Product / Agency',render:r=><>{productLink(r.productName,()=>openDrill({productKey:r.productKey,month:f.end}))}<div className="muted">{r.agency}</div></>},numeric('QOH','qoh'),numeric('Units','units'),numeric('Age','age'),numeric('Closing ₹','value',true)]} rows={data.candidates} empty="No candidates match these thresholds."/></div><button className="text-button footer-link" onClick={()=>openDrill({kind:'candidates'})}>{data.candidateCount>25?'Showing 25 of '+data.candidateCount+' · ':''}Explore candidate source rows →</button></article>
           </div>
           <section className="ask panel"><div><span className="tag">NEXT UP</span><h2>Ask your sales data</h2><p>A place for your next question. Guided exploration is available now.</p></div><div className="ask-control"><input aria-label="Future natural-language questions" placeholder="e.g. Compare ACN 1000 sales between Madhu and Meda" disabled/><div className="ask-bottom"><span>Natural-language queries are planned for a future version.</span><a className="text-button" href="#products">Explore product trends ↗</a></div></div></section>
-          <details className="diagnostics panel"><summary><span>Data quality &amp; traceability</span><span className="muted">Source coverage, mappings and exclusions</span></summary><div className="diagnostic-grid">{[['Latest statement month',monthLabel(q.latestMonth)],['Agencies loaded',q.agencies.join(', ')||'—'],['Raw names · all data',q.rawNames],['Normalized SKUs · all data',q.skus],['Unmapped names · selected scope',q.unmappedRawCount],['Rows excluded: NO · scope',q.excludedNo],['Other non-YES rows · scope',q.excludedOther],['Raw observations · all data',q.rawRows]].map(([label,value])=><div key={label}><p>{label}</p><strong>{value}</strong></div>)}</div><p className="scope-note">Selected scope = month range + agency, before brand/product/inclusion filters. Each refresh reads the live sheet using your Google access. Missing observations remain unavailable, not invented zeros.</p><div className="diagnostic-actions"><button className="button" onClick={()=>openDrill()}>Inspect product source rows</button><button className="button" onClick={()=>openDrill({kind:'financial'})}>Inspect financial statements</button></div><h3>Unmapped aliases in selected scope</h3><DataTable columns={[{label:'Raw name',key:'rawName'},{label:'Agency',key:'agency'},{label:'Mapping issue',key:'issue'}]} rows={q.unmapped} empty="All raw names in this scope have an exact, unambiguous mapping."/></details>
+          <details className="diagnostics panel"><summary><span>Data quality &amp; traceability</span><span className="muted">Source coverage, mappings and exclusions</span></summary><div className="diagnostic-grid">{[['Latest statement month',monthLabel(q.latestMonth)],['Agencies loaded',q.agencies.join(', ')||'—'],['Raw names · all data',q.rawNames],['Normalized SKUs · all data',q.skus],['Unmapped names · selected scope',q.unmappedRawCount],['Rows excluded: NO · scope',q.excludedNo],['Other non-YES rows · scope',q.excludedOther],['Raw observations · all data',q.rawRows]].map(([label,value])=><div key={label}><p>{label}</p><strong>{value}</strong></div>)}</div><p className="scope-note">Selected scope = month range + agency, before brand/product/inclusion filters. Each refresh reads the latest spreadsheet data. Missing observations remain unavailable, not invented zeros.</p><div className="diagnostic-actions"><button className="button" onClick={()=>openDrill()}>Inspect product source rows</button><button className="button" onClick={()=>openDrill({kind:'financial'})}>Inspect financial statements</button></div><h3>Unmapped aliases in selected scope</h3><DataTable columns={[{label:'Raw name',key:'rawName'},{label:'Agency',key:'agency'},{label:'Mapping issue',key:'issue'}]} rows={q.unmapped} empty="All raw names in this scope have an exact, unambiguous mapping."/></details>
         </div>
       </>}
       <footer><span>MedMetric <span className="footer-dot">/</span> Clarity in every number.</span><span>Google Sheets source · Read-only · No AI-generated insights</span></footer>

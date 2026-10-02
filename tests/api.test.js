@@ -1,3 +1,7 @@
+import { createHmac } from 'node:crypto';
+process.env.MEDMETRIC_ACCESS_CODE='valid-test-token-long-enough';
+process.env.MEDMETRIC_BACKEND_SECRET='backend-secret-for-synthetic-tests-only';
+process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleData } from '../lib/api.js';
@@ -21,7 +25,7 @@ const config = [
   { Raw_Product_Name:'EXCLUDED',Agency_Reference:'MADHU',Your_Product_Name:'Old product',Your_SKU:'OLD',Your_Brand_Group:'BRAND',Your_Status:'OLD_PACK',Include_In_Charts:'NO' }
 ];
 const data = () => prepareData(totals,raw,config,'Etc/UTC');
-const request = (body={filters:{}},headers={}) => new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer valid-test-token',...headers},body:JSON.stringify(body)});
+const request = (body={filters:{}},headers={}) => new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer valid-test-token-long-enough',...headers},body:JSON.stringify(body)});
 
 test('unauthenticated requests cannot reach the sheet loader',async()=>{
   let called=false;const res=await handleData(request({}, {Authorization:''}),'dashboard',async()=>{called=true;return data();});
@@ -29,13 +33,13 @@ test('unauthenticated requests cannot reach the sheet loader',async()=>{
 });
 test('authorization token is passed only to the sheet loader',async()=>{
   let received;const res=await handleData(request(),'dashboard',async token=>{received=token;return data();});
-  assert.equal(res.status,200);assert.equal(received,'valid-test-token');assert.ok(!(await res.text()).includes('valid-test-token'));
+  assert.equal(res.status,200);assert.equal(received,'valid-test-token-long-enough');assert.ok(!(await res.text()).includes('valid-test-token-long-enough'));
 });
 test('cross-origin requests are rejected before reading data',async()=>{
   const res=await handleData(request({}, {Origin:'https://untrusted.example'}),'dashboard',()=>{throw Error('must not load');});assert.equal(res.status,403);
 });
 test('malformed JSON and invalid filter shapes return 400',async()=>{
-  const malformed=new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer valid-test-token'},body:'{'});
+  const malformed=new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer valid-test-token-long-enough'},body:'{'});
   assert.equal((await handleData(malformed,'dashboard')).status,400);
   assert.equal((await handleData(request({filters:[]}), 'dashboard')).status,400);
   assert.equal((await handleData(request({filters:{minAge:-1}}),'dashboard')).status,400);
@@ -78,15 +82,21 @@ test('drill-down is bounded and preserves raw name and stock age observations',(
 test('source records validate headers and ignore unrequested columns',()=>{
   const name='PRODUCT_CONFIG',headers=HEADERS[name];const rows=tableRecords([headers,headers.map(h=>config[0][h]||'')],name);assert.equal(rows[0]._row,2);assert.equal(rows[0].Your_SKU,'ONE');assert.throws(()=>tableRecords([['Wrong']],name),/missing headers/);
 });
-test('Sheets read batches three ranges with serial dates and no caching',async()=>{
-  let calls=0;const groups=[totals,raw,config],names=['MONTHLY_TOTALS','SALES_RAW','PRODUCT_CONFIG'];
-  const fetched=await readSheet('private-access-token',async(url,options)=>{
-    calls++;assert.equal(new URL(url).searchParams.getAll('ranges').length,3);assert.equal(new URL(url).searchParams.get('dateTimeRenderOption'),'SERIAL_NUMBER');assert.ok(!String(url).includes('private-access-token'));assert.equal(options.headers.Authorization,'Bearer private-access-token');assert.equal(options.cache,'no-store');assert.equal(options.method,undefined);
-    return Response.json({valueRanges:groups.map((rows,i)=>({values:[HEADERS[names[i]],...rows.map(r=>HEADERS[names[i]].map(h=>r[h]??''))]}))});
-  });assert.equal(calls,1);assert.equal(dashboardModel(fetched,{}).kpis.secondary,180);
+test('signed Apps Script request reads three tables without forwarding access code',async()=>{
+  const groups=[totals,raw,config],names=['MONTHLY_TOTALS','SALES_RAW','PRODUCT_CONFIG'];
+  const fetched=await readSheet(process.env.MEDMETRIC_ACCESS_CODE,async(url,options)=>{
+    assert.equal(url,process.env.APPS_SCRIPT_URL);assert.equal(options.method,'POST');assert.equal(options.cache,'no-store');
+    const packet=JSON.parse(options.body);
+    assert.equal(packet.signature,createHmac('sha256',process.env.MEDMETRIC_BACKEND_SECRET).update(packet.payload).digest('hex'));
+    assert.ok(!options.body.includes(process.env.MEDMETRIC_ACCESS_CODE));assert.ok(!options.body.includes(process.env.MEDMETRIC_BACKEND_SECRET));
+    return Response.json({ok:true,valueRanges:groups.map((rows,i)=>({values:[HEADERS[names[i]],...rows.map(r=>HEADERS[names[i]].map(h=>r[h]??''))]}))});
+  });assert.equal(dashboardModel(fetched,{}).kpis.secondary,180);
 });
-test('Google 401 and 403 never produce source data',async()=>{
-  for(const status of [401,403])await assert.rejects(()=>readSheet('bad-token',async()=>new Response('{}',{status})),e=>e.status===status);
+test('incorrect access code never reaches Apps Script',async()=>{
+  let called=false;await assert.rejects(()=>readSheet('wrong',()=>{called=true;}),e=>e.status===401);assert.equal(called,false);
+});
+test('backend rejection and HTML login responses fail closed',async()=>{
+  for(const response of [Response.json({ok:false,error:'Unauthorized'}),new Response('<html>Login</html>')])await assert.rejects(()=>readSheet(process.env.MEDMETRIC_ACCESS_CODE,async()=>response),e=>e.status===502);
 });
 test('upstream internals and tokens are not leaked in unexpected errors',async()=>{
   const res=await handleData(request(),'dashboard',()=>{throw Error('private-access-token credential');});assert.equal(res.status,502);assert.ok(!(await res.text()).includes('credential'));
