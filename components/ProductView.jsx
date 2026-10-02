@@ -2,9 +2,20 @@
 import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage, DataTable } from './ChartPanel.jsx';
 
+function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,shareKey,formatValue,formatTotal,reason}) {
+  return <article className="kpi product-metric"><p>{label}<span>{unit}</span></p><strong title={formatValue(value)}>{(formatTotal||formatValue)(value)}</strong><small>{note}</small>{value==null&&reason&&<div className="metric-explanation">{reason}</div>}<ul className="metric-agencies">{agencies.map(a=>{
+    const item=readValue(a),share=shareKey?a.shares[shareKey]:null;
+    return <li key={a.agency}><button type="button" onClick={()=>onAgency(a.agency)} aria-label={'Explore '+a.agency+' '+label.toLowerCase()}><span className="metric-agency-name"><i style={{background:colors(a.agency)}} aria-hidden="true"/>{a.agency}</span><span className="metric-agency-values"><b>{formatValue(item.value)}</b>{item.reason&&<span>{item.reason}</span>}{share!=null&&<span>{share.toLocaleString('en-IN',{maximumFractionDigits:1})}% of total</span>}</span></button></li>;
+  })}</ul><span className="kpi-line primary-line"/></article>;
+}
+
 export default function ProductView({data,onSource,onAgency}) {
   const product=data.productDetail, monthly=product.monthly, f=data.filters;
   const labels=monthly.months.map(monthLabel);
+  const agencyColor=agency=>['#3489e0','#e65722'][data.options.agencies.indexOf(agency)%2];
+  const unitValue=value=>value==null?'—':exact(value)+' units';
+  const stockMonths=value=>value==null?'—':value>0&&value<0.1?'<0.1 months':exact(value)+' months';
+  const signedUnits=value=>value==null?'—':(value>0?'+':'')+exact(value)+' units';
   const valueRange=sharedValueRange(monthly.agencies.flatMap(series=>series.rows.flatMap(row=>[row.purchased,row.units])));
   const fullStockMonths=monthly.agencies.every(series=>series.rows.every(row=>!row.observations||row.coverage==='Full month'));
   const monthlyColumns=[{label:'Month',render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month})}>{monthLabel(r.month)}</button>},...[['Restocked units','purchased'],['Sold units','units']].map(([label,key])=>({label,numeric:true,render:r=>exact(r[key])}))];
@@ -15,9 +26,16 @@ export default function ProductView({data,onSource,onAgency}) {
     <div className="product-context"><div className="product-tags">{[product.brand,product.sku && 'SKU '+product.sku,...product.statuses].filter(Boolean).map(tag=><span key={tag}>{tag}</span>)}</div><button className="button" onClick={()=>onSource({productKey:product.key})}>View source rows ↗</button></div>
     <div className="section-heading"><h2>Product performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
     <section className="kpi-grid" aria-label="Product metrics">{[
-      ['Units sold','units',false,'Selected period'],['Units received','purchased',false,'Agency purchases · selected period'],
+      ['Units sold','units',false,'Selected period'],['Units restocked','purchased',false,'Selected period'],
       ['Closing stock','qoh',false,'Units remaining · '+monthLabel(f.end)],['Stock value','value',true,'Closing inventory · '+monthLabel(f.end)]
-    ].map(([label,key,currency,note])=><article className="kpi" key={key}><p>{label}<span>{currency?'₹':'units'}</span></p><strong title={exact(product.metrics[key],currency)}>{compact(product.metrics[key],currency)}</strong><small>{note}</small><span className="kpi-line primary-line"/></article>)}</section>
+    ].map(([label,key,currency,note])=><MetricCard key={key} label={label} value={product.metrics[key]} unit={currency?'₹':'units'} note={note} agencies={product.agencies} onAgency={onAgency} colors={agencyColor} shareKey={key}
+      readValue={a=>({value:a[key],reason:a[key]==null?'Missing data':''})} formatValue={currency?value=>exact(value,true):unitValue} formatTotal={value=>compact(value,currency)} reason="Some agency data is missing; available values are shown below."/>)}</section>
+    <section className="product-extra-metrics" aria-label="Product growth and stock coverage">
+      <MetricCard label="Latest-month sales growth" value={product.latestGrowth} unit="%" note={monthLabel(f.end)+' vs '+monthLabel(product.previousMonth)} agencies={product.agencies} onAgency={onAgency} colors={agencyColor} readValue={a=>({value:a.growth,reason:a.growthReason})} formatValue={percentage} reason={product.latestGrowthReason}/>
+      <MetricCard label="Restocked − sold" value={product.metrics.restockingGap} unit="units" note="Selected period · receipts minus sales" agencies={product.agencies} onAgency={onAgency} colors={agencyColor} readValue={a=>({value:a.restockingGap,reason:a.restockingGap==null?'Missing data':''})} formatValue={signedUnits} reason="Needs complete restocking and sales data."/>
+      <MetricCard label="Estimated stock cover" value={product.metrics.stockCoverage.value} unit="months" note={'Closing stock ÷ units sold in '+monthLabel(f.end)} agencies={product.agencies} onAgency={onAgency} colors={agencyColor} readValue={a=>a.stockCoverage} formatValue={stockMonths} reason={product.metrics.stockCoverage.reason}/>
+    </section>
+    <p className="product-metric-note">Select an agency in any card to focus the product view. Percentages use complete, comparable data. Restocked − sold is a receipt/sales gap, not the change in closing stock. Stock cover assumes the latest full-month sales pace continues; it is an estimate.</p>
     <section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>
     <div className="section-heading"><h2>Restocked vs sold</h2><span className="period-label">Monthly units · {labels[0] || '—'} to {labels.at(-1) || '—'}</span></div>
     <div className="chart-grid product-monthly-charts">

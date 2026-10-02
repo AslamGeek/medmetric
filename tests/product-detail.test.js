@@ -128,3 +128,43 @@ test('small nonzero growth is never described as a zero-percent increase',()=>{
   assert.ok(!p.insights.some(s=>s.includes('up 0.0%')||s.includes('increased 0.0%')));
   assert.ok(p.insights.some(s=>s.includes('<0.1%')));
 });
+
+test('agency metric breakdowns reconcile with totals and comparable shares',()=>{
+  const p=dashboardModel(fixture(),{product:'sku:A'}).productDetail;
+  for(const key of ['units','purchased','qoh','value']){
+    assert.equal(p.agencies.reduce((sum,a)=>sum+a[key],0),p.metrics[key]);
+    assert.equal(p.agencies.reduce((sum,a)=>sum+a.shares[key],0),100);
+  }
+  const [madhu,meda]=p.agencies;
+  assert.equal(madhu.shares.units,75);assert.equal(meda.shares.units,25);
+  assert.equal(madhu.shares.purchased,50);assert.equal(meda.shares.qoh,80);
+  assert.equal(meda.shares.value,80);
+});
+
+test('stock cover uses latest full-month sales, and receipts minus sales is a separate gap',()=>{
+  for(const filters of [{product:'sku:A'},{product:'sku:A',start:'2026-07',end:'2026-09'}]){
+    const p=dashboardModel(fixture(),filters).productDetail;
+    assert.equal(p.metrics.stockCoverage.value,2.5);
+    assert.equal(p.agencies[0].stockCoverage.value,20/30);assert.equal(p.agencies[1].stockCoverage.value,8);
+    assert.equal(p.metrics.restockingGap,filters.start?120:40);
+    assert.equal(p.latestGrowth,0);assert.equal(p.agencies[0].growth,50);assert.equal(p.agencies[1].growth,-50);
+  }
+});
+
+test('stock cover and shares remain unavailable with partial or incomplete inputs',()=>{
+  const partial=dashboardModel(fixture({partial:true}),{product:'sku:A'}).productDetail;
+  assert.equal(partial.metrics.stockCoverage.value,null);assert.equal(partial.latestGrowth,null);
+  assert.ok(partial.agencies.every(a=>a.stockCoverage.value===null&&a.shares.units===null&&a.shares.qoh===null));
+  const missing=dashboardModel(fixture({missing:true}),{product:'sku:A',start:'2026-07',end:'2026-09'}).productDetail;
+  assert.equal(missing.metrics.restockingGap,null);assert.ok(missing.agencies.every(a=>a.shares.units===null));
+  assert.equal(missing.agencies[0].restockingGap,60);assert.equal(missing.agencies[1].restockingGap,null);
+  assert.equal(missing.metrics.stockCoverage.value,2.5);
+});
+
+test('zero-sales stock cover has an explanation instead of infinity, while zero stock is zero cover',()=>{
+  const d=fixture();for(const r of d.sales.filter(r=>r.productKey==='sku:A'&&r.month==='2026-09'))r.units=0;
+  const idle=dashboardModel(d,{product:'sku:A'}).productDetail;
+  assert.equal(idle.metrics.stockCoverage.value,null);assert.equal(idle.metrics.stockCoverage.reason,'Stock, no sales');
+  const moving=fixture();for(const r of moving.sales.filter(r=>r.productKey==='sku:A'&&r.month==='2026-09'))r.qoh=0;
+  assert.equal(dashboardModel(moving,{product:'sku:A'}).productDetail.metrics.stockCoverage.value,0);
+});
