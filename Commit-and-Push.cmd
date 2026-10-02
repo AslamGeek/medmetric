@@ -15,7 +15,28 @@ $publisherPath = $env:MEDMETRIC_PUBLISHER
 $sourceDir = Split-Path -Parent $publisherPath
 $checkoutDir = Join-Path $sourceDir '.medmetric-publish'
 $logPath = Join-Path $sourceDir 'MedMetric-publish.log'
-$appFiles = @('Code.gs', 'Index.html', 'Styles.html', 'Scripts.html', 'appsscript.json')
+$appFiles = @(
+    'package.json',
+    'package-lock.json',
+    'vercel.json',
+    'next.config.mjs',
+    '.gitignore',
+    '.env.example',
+    'README.md',
+    'app/layout.jsx',
+    'app/page.jsx',
+    'app/globals.css',
+    'app/api/config/route.js',
+    'app/api/dashboard/route.js',
+    'app/api/drilldown/route.js',
+    'components/Dashboard.jsx',
+    'components/ChartPanel.jsx',
+    'lib/analytics.js',
+    'lib/api.js',
+    'lib/sheets.js',
+    'scripts/check-deployment.js',
+    'tests/api.test.js'
+)
 $publishFiles = $appFiles + @('Commit-and-Push.cmd')
 $transcriptStarted = $false
 $resultCode = 1
@@ -33,7 +54,7 @@ try {
     $transcriptStarted = $true
     Write-Host 'MedMetric publisher' -ForegroundColor Cyan
     Write-Host ('Repository: ' + $repoUrl)
-    Write-Host 'Uploads only the five app source files and this launcher.'
+    Write-Host 'Uploads only the approved Next.js source files and this launcher.'
     Write-Host 'Your Google Sheet data, local snapshots, setup documents and logs are not uploaded.'
     Write-Host ''
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -41,7 +62,7 @@ try {
     }
     foreach ($name in $appFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $sourceDir $name) -PathType Leaf)) {
-            throw ('Missing ' + $name + '. Keep this CMD beside all five app source files.')
+            throw ('Missing ' + $name + '. Extract the complete Next.js ZIP and keep this CMD in its top-level folder.')
         }
     }
 
@@ -90,10 +111,15 @@ try {
 
     if ($checkoutDir -ne $sourceDir) {
         foreach ($name in $publishFiles) {
-            Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination (Join-Path $checkoutDir $name) -Force
+            $targetFile = Join-Path $checkoutDir $name
+            $targetParent = Split-Path -Parent $targetFile
+            New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination $targetFile -Force
         }
     }
 
+    # Obsolete Apps Script files remain in history and are ignored by Next.js.
+    # No sheet snapshots, .env values, node_modules or build output are staged.
     Write-Host ''
     Write-Host 'Files to publish:' -ForegroundColor Cyan
     Invoke-Git -GitArgs (@('status', '--short', '--') + $publishFiles)
