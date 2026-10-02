@@ -45,9 +45,9 @@ function doPost(e) {
     return reply_({ok:true,valueRanges});
   } catch(error) { return reply_({ok:false,error:'Unable to read source spreadsheet'}); }
 }
-function readFields_(ss) {
+function readFields_(ss,names=Object.keys(FIELD_SPEC),includeAgencies=true) {
   const data={};
-  for(const name of Object.keys(FIELD_SPEC)){
+  for(const name of names){
     const sheet=ss.getSheetByName(name);if(!sheet)throw new Error('Missing '+name+' tab.');
     const values=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),FIELD_SPEC[name].headers.length).getValues().map(row=>row.map(v=>v instanceof Date?Utilities.formatDate(v,ss.getSpreadsheetTimeZone()||'Asia/Kolkata','yyyy-MM-dd'):v));
     data[name]=fieldRecords(values,FIELD_SPEC[name].headers,name);
@@ -55,15 +55,18 @@ function readFields_(ss) {
   const config=ss.getSheetByName('PRODUCT_CONFIG');
   const headers=['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'];
   data.products=fieldProducts(fieldRecords(config.getRange(1,1,Math.max(1,config.getLastRow()),12).getValues(),headers,'PRODUCT_CONFIG'));
+  if(includeAgencies){
   const totals=ss.getSheetByName('MONTHLY_TOTALS');
   const agencyValues=totals.getRange(1,7,Math.max(1,totals.getLastRow()),1).getValues();
   data.agencies=[...new Set(agencyValues.slice(1).map(r=>String(r[0]||'').trim()).filter(Boolean))].sort();
+  }else data.agencies=[];
   return data;
 }
 function saveField_(ss,command) {
   if(!['create','update'].includes(command.operation))throw new Error('Invalid save operation.');
   const spec=FIELD_SPEC[command.table];if(!spec?.required)throw new Error('This table cannot be edited from the app.');
-  const data=readFields_(ss),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table])],!!command.record?.Agency),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+  if(command.links!==undefined)return saveLinks_(ss,command,data,today);
   const record=validateFieldRecord(command.table,command.record,data,today);
   const idKey=spec.headers[0],existing=data[command.table].filter(r=>r[idKey]===record[idKey]);
   if(existing.length>1)throw new Error('Duplicate activity IDs in this tab. Resolve the duplicate before editing.');
@@ -88,6 +91,32 @@ function saveField_(ss,command) {
   sheet.getRange(row,1,1,spec.headers.length).setValues([values]);
   SpreadsheetApp.flush();
   return {ok:true,record};
+}
+
+function saveLinks_(ss,command,data,today){
+  if(command.table!=='DOCTOR_PRODUCTS'||command.operation!=='create'||!Array.isArray(command.links)||!command.links.length||command.links.length>data.products.length)throw new Error('Choose products to link.');
+  const spec=FIELD_SPEC.DOCTOR_PRODUCTS,ids=new Set(),skus=new Set(),newRows=[];
+  const records=command.links.map(link=>{
+    if(!link||Object.keys(link).some(k=>!['Link_ID','Product_SKU'].includes(k)))throw new Error('Invalid product selection.');
+    const record=validateFieldRecord('DOCTOR_PRODUCTS',{...command.record,...link},data,today);
+    if(ids.has(record.Link_ID)||skus.has(record.Product_SKU))throw new Error('Select each product only once.');
+    ids.add(record.Link_ID);skus.add(record.Product_SKU);
+    const existing=data.DOCTOR_PRODUCTS.filter(r=>r.Link_ID===record.Link_ID);
+    if(existing.length>1)throw new Error('Duplicate link IDs.');
+    if(existing.length){if(spec.headers.some(h=>String(existing[0][h]??'')!==String(record[h]??'')))throw new Error('This link already exists with different values. Refresh before editing.');return existing[0];}
+    newRows.push(record);return record;
+  });
+  if(newRows.length){
+    const sheet=ss.getSheetByName('DOCTOR_PRODUCTS'),row=sheet.getLastRow()+1;
+    if(row+newRows.length-1>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),Math.max(100,row+newRows.length-1-sheet.getMaxRows()));
+    sheet.getRange(row,1,newRows.length,spec.headers.length).setValues(newRows.map(record=>spec.headers.map(h=>{
+      const value=record[h]??'';
+      if(value&&(spec.dates||[]).includes(h))return new Date(value+'T12:00:00Z');
+      return typeof value==='string'&&value.startsWith('=')?"'"+value:value;
+    })));
+    SpreadsheetApp.flush();
+  }
+  return {ok:true,records,alreadySaved:!newRows.length};
 }
 
 // BEGIN GENERATED FIELD TRACKING

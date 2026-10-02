@@ -27,3 +27,10 @@ test('blocked browser storage still permits memory reuse and saving',async()=>{
 test('a late refresh cannot replace an acknowledged saved record in browser storage',async()=>{
  const store=storage();let release;const session=createFieldSession(()=>new Promise(resolve=>{release=resolve;}),()=>store);store.setItem(FIELD_SNAPSHOT_KEY,JSON.stringify(snapshot()));session.restore();const pending=session.load(true);await Promise.resolve();session.saved('RX_ACTIVITY',entry());release(snapshot());assert.equal((await pending).RX_ACTIVITY.length,1);const reload=createFieldSession(()=>{throw Error('Must not read');},()=>store);assert.equal((await reload.load()).RX_ACTIVITY.length,1);
 });
+
+test('all acknowledged product links persist together after reload',async()=>{
+ const store=storage(),session=createFieldSession(async()=>snapshot(),()=>store);await session.load();
+ const rows=['P1','P2'].map((sku,i)=>Object.fromEntries(FIELD_SPEC.DOCTOR_PRODUCTS.headers.map(h=>[h,h==='Link_ID'?'link-'+i:h==='Product_SKU'?sku:''])));
+ session.saved('DOCTOR_PRODUCTS',rows);session.saved('DOCTOR_PRODUCTS',rows);
+ assert.equal((await createFieldSession(async()=>{throw Error('Unexpected read');},()=>store).load()).DOCTOR_PRODUCTS.length,2);
+});

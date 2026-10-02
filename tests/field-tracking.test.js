@@ -62,12 +62,13 @@ function backendFixture(){
  const d=source(),tables=Object.fromEntries(Object.entries(FIELD_SPEC).map(([k,s])=>[k,[s.headers,...d[k].map(r=>s.headers.map(h=>r[h]||''))]]));
  tables.PRODUCT_CONFIG=[['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'],['SYP','Product syrup','ACTIVE','YES'],['DROPS','Product drops','ACTIVE','YES']];
  tables.MONTHLY_TOTALS=[['','','','','','','Agency'],['','','','','','','AGENCY']];
- const sheet=name=>({getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??'')),setValues:values=>{for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})});
+ const calls={reads:[],writes:0};
+ const sheet=name=>({getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>{calls.reads.push(name);return Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));},setValues:values=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})});
  const secret='synthetic-field-secret-12345678901234567890',cache=new Map();
  const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet}),flush:()=>{}}});
  vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
  function call(command){const payload=JSON.stringify({...command,timestamp:Date.now(),nonce:randomUUID()});return context.doPost({postData:{contents:JSON.stringify({payload,signature:createHmac('sha256',secret).update(payload).digest('hex')})}});}
- return {tables,call};
+ return {tables,call,calls};
 }
 test('signed backend saves once, retries idempotently and leaves pharmacy stock and revenue untouched',()=>{
  const f=backendFixture(),before=JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),r=rx();const first=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:r});assert.equal(first.ok,true,first.error);const again=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:r});assert.equal(again.alreadySaved,true);assert.equal(f.tables.RX_ACTIVITY.length,2);assert.equal(JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),before);
@@ -84,4 +85,13 @@ test('a stale edit cannot overwrite another saved edit',()=>{
 });
 test('Apps Script uses exactly the shared validation code',()=>{
  const shared=fs.readFileSync(new URL('../lib/field-tracking.js',import.meta.url),'utf8').replace(/^export /gm,'');const backend=fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');assert.ok(backend.includes(shared));
+});
+
+test('doctor products batch validates before writing and safely retries every selected product',()=>{
+ const f=backendFixture(),record={Doctor_ID:'D1',Pharmacy_ID:'P1',Relationship:'EXISTING',Active:'YES'},links=[{Link_ID:randomUUID(),Product_SKU:'SYP'},{Link_ID:randomUUID(),Product_SKU:'DROPS'}];
+ const command={action:'field_save',table:'DOCTOR_PRODUCTS',operation:'create',record,links};
+ const invalid=f.call({...command,links:[links[0],{...links[1],Product_SKU:'UNKNOWN'}]});assert.equal(invalid.ok,false);assert.equal(f.tables.DOCTOR_PRODUCTS.length,1);
+ f.calls.reads=[];const first=f.call(command);assert.equal(first.ok,true,first.error);assert.equal(f.calls.writes,1);assert.deepEqual(f.calls.reads,['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','PRODUCT_CONFIG']);assert.equal(first.records.length,2);assert.equal(f.tables.DOCTOR_PRODUCTS.length,3);
+ const retry=f.call(command);assert.equal(retry.alreadySaved,true);assert.equal(f.tables.DOCTOR_PRODUCTS.length,3);
+ const duplicate=f.call({...command,links:[links[0],{...links[1],Product_SKU:'SYP'}]});assert.equal(duplicate.ok,false);
 });
