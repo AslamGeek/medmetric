@@ -4,6 +4,7 @@ import ChartPanel, { compact, exact, monthLabel, percentage, DataTable } from '.
 import { createDashboardSession } from '../lib/dashboard-session.js';
 import ProductView from './ProductView.jsx';
 import ProductCatalog from './ProductCatalog.jsx';
+import ProductRankings from './ProductRankings.jsx';
 
 const productLink = (label, action) => <button type="button" onClick={action}>{label}</button>;
 const numeric = (label,key,currency=false) => ({ label,numeric:true,render:r => exact(r[key],currency) });
@@ -69,7 +70,7 @@ export default function Dashboard() {
     if(request.productKey){setView('products');update({product:request.productKey,trendProduct:request.productKey});}
     setDrill({...request,offset:0});
   }
-  function selectProduct(key){setView('products');update({product:key,trendProduct:key});window.scrollTo({top:0,behavior:'instant'});}
+  function selectProduct(key,agency){setView('products');update({product:key,trendProduct:key,...(agency?{agency}:{})});window.scrollTo({top:0,behavior:'instant'});}
   function navigate(next){setView(next);update({product:''});setDrill(null);window.scrollTo({top:0,behavior:'instant'});}
 
   const f=data?.filters || {}, o=data?.options, t=data?.trend, q=data?.diagnostics;
@@ -110,6 +111,7 @@ export default function Dashboard() {
           <section className="insights panel"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>What the numbers say</h2><p>Calculated from your selected data</p></div></div><ul>{(data.insights.length?data.insights:['No data available for the selected filters.']).map(s=><li key={s}>{s}</li>)}</ul></section>
           </>}
           {!focused && view==='products' && <ProductCatalog products={o.products} onSelect={selectProduct}/>}
+          {!focused && <ProductRankings data={data} onSelect={selectProduct}/>}
           {!focused && view!=='inventory' && <><div id="products" className="section-heading anchor"><div><p className="eyebrow">PRODUCT INTELLIGENCE</p><h2>Movement, mapped to your products</h2></div><span className="muted">{o.products.length} available products · {f.includeExcluded?'all inclusion flags':'Include_In_Charts = YES'}</span></div>
           <div className="chart-grid">
             <ChartPanel title="Top products by units sold" subtitle="Top 10 · selected period · normalized products" type="bar" horizontal labels={data.topProducts.map(r=>r.name)} datasets={[{label:'Units sold',data:data.topProducts.map(r=>r.units)}]} onPoint={i=>selectProduct(data.topProducts[i].key)} columns={[{label:'Product',render:r=>productLink(r.name,()=>selectProduct(r.key))},{label:'SKU',key:'sku'},numeric('Units sold','units')]} rows={data.topProducts}/>

@@ -34,8 +34,10 @@ $appFiles = @(
     'components/ChartPanel.jsx',
     'components/ProductView.jsx',
     'components/ProductCatalog.jsx',
+    'components/ProductRankings.jsx',
     'lib/analytics.js',
     'lib/chart-scales.js',
+    'lib/product-rankings.js',
     'lib/api.js',
     'lib/sheets.js',
     'lib/dashboard-session.js',
@@ -45,6 +47,7 @@ $appFiles = @(
     'tests/dashboard-session.test.js',
     'tests/product-detail.test.js',
     'tests/chart-scales.test.js',
+    'tests/product-rankings.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
 )
