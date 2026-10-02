@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareData,dashboardModel} from '../lib/analytics.js';
+import {prepareData,dashboardModel,drilldownModel} from '../lib/analytics.js';
 
 function fixture({partial=false,missing=false}={}) {
   const months=['2026-07','2026-08','2026-09'];
@@ -49,4 +49,29 @@ test('blank units never become a zero-growth or three-month trend claim',()=>{
   const p=dashboardModel(d,{product:'sku:A'}).productDetail;
   assert.equal(p.agencies[0].growth,null);
   assert.ok(!p.insights.some(s=>s.includes('MADHU shows a rising')));
+});
+
+test('monthly charts separate restocked, sold and stock units for each agency',()=>{
+  const p=dashboardModel(fixture(),{product:'sku:A'}).productDetail;
+  assert.deepEqual(p.monthly.months,['2026-07','2026-08','2026-09']);
+  const madhu=p.monthly.agencies.find(a=>a.agency==='MADHU').rows;
+  assert.deepEqual(madhu.map(r=>r.units),[10,20,30]);
+  assert.deepEqual(madhu.map(r=>r.purchased),[40,40,40]);
+  assert.deepEqual(madhu.map(r=>r.qoh),[20,20,20]);
+  const range=dashboardModel(fixture(),{product:'sku:A',start:'2026-08',end:'2026-09',agency:'MEDA'}).productDetail.monthly;
+  assert.deepEqual(range.months,['2026-08','2026-09']);assert.equal(range.agencies.length,1);
+  assert.deepEqual(range.agencies[0].rows.map(r=>r.units),[20,10]);
+});
+
+test('monthly chart gaps stay unknown while actual zeros remain zero',()=>{
+  const d=fixture({missing:true});
+  d.sales.find(r=>r.productKey==='sku:A'&&r.agency==='MEDA'&&r.month==='2026-09').purchased=0;
+  const series=dashboardModel(d,{product:'sku:A'}).productDetail.monthly.agencies.find(a=>a.agency==='MEDA');
+  assert.equal(series.rows[1].units,null);assert.equal(series.rows[1].purchased,null);assert.equal(series.rows[1].qoh,null);
+  assert.equal(series.rows[2].purchased,0);
+});
+
+test('an agency monthly chart drills into that agency, product and month only',()=>{
+  const result=drilldownModel(fixture(),{product:'sku:A'},{productKey:'sku:A',month:'2026-08',agency:'MEDA'});
+  assert.equal(result.rows.length,1);assert.equal(result.rows[0].agency,'MEDA');assert.equal(result.rows[0].month,'2026-08');assert.equal(result.rows[0].units,20);
 });

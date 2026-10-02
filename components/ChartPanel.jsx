@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
 
-export const colors = ['#315fcb','#239d98','#8b79b9','#b99a64','#7196b6'];
+export const colors = ['#3489e0','#e65722','#8b79b9','#239d98','#b99a64'];
 export const exact = (value, currency = false) => value == null ? '—' : (currency ? '₹' : '') + Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 export function compact(value, currency = false) {
   if (value == null) return '—';
@@ -16,26 +16,29 @@ export function DataTable({ columns, rows, empty = 'No data available' }) {
   return <div className="table-scroll"><table><thead><tr>{columns.map(c => <th key={c.label} scope="col">{c.label}</th>)}</tr></thead><tbody>{rows.map((r,i) => <tr key={r.key || r.sheetRow || i}>{columns.map(c => <td key={c.label} className={c.numeric ? 'num' : ''}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children }) {
+export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children, unit, interactionHint }) {
+  const [view,setView]=useState('chart');
+  const id=useId();
+  const axisUnit=unit || (currency?'₹':'Units');
   const canvas = useRef(null), onPointRef = useRef(onPoint);
   onPointRef.current = onPoint;
-  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type });
+  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type,axisUnit });
   const available = datasets.some(s => s.data.some(v => v != null));
   useEffect(() => {
-    if (!canvas.current || !available) return;
+    if (view!=='chart' || !canvas.current || !available) return;
     const spec = JSON.parse(signature);
     const chart = new Chart(canvas.current, {
       type: spec.type,
-      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => ({ label:s.label, data:s.data, borderColor:colors[i % colors.length], backgroundColor:colors[i % colors.length], borderWidth:spec.type === 'line' ? 2 : 0, pointRadius:3, pointHoverRadius:5, pointBackgroundColor:'#fff', pointBorderWidth:2, tension:.25, fill:false, borderRadius:4, maxBarThickness:spec.horizontal ? 17 : 24, spanGaps:false })) },
+      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => ({ label:s.label, data:s.data, borderColor:s.color || colors[i % colors.length], backgroundColor:s.color || colors[i % colors.length], borderWidth:spec.type === 'line' ? 2.5 : 0, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:s.color || colors[i % colors.length], pointBorderWidth:1, tension:0, fill:false, borderRadius:4, maxBarThickness:spec.horizontal ? 24 : 42, spanGaps:false })) },
       options: {
         responsive:true, maintainAspectRatio:false, indexAxis:spec.horizontal ? 'y' : 'x', animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration:200 },
         interaction:{ mode:spec.horizontal ? 'nearest' : 'index', intersect:false },
-        plugins:{ legend:{ display:spec.datasets.length > 1, position:'bottom', align:'start', labels:{ usePointStyle:true, boxWidth:6, boxHeight:6, padding:18, color:'#687586', font:{ size:10 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' units') } } },
-        scales:{ x:{ grid:{ display:spec.horizontal,color:'#edf0f4' }, border:{ display:false }, ticks:{ color:'#8994a3',font:{ size:9 },maxRotation:0,callback:spec.horizontal ? v => compact(v,spec.currency) : undefined },beginAtZero:spec.horizontal }, y:{ grid:{ display:!spec.horizontal,color:'#edf0f4' },border:{ display:false },ticks:{ color:'#687586',font:{ size:spec.horizontal ? 10 : 9 },callback:spec.horizontal ? undefined : v => compact(v,spec.currency) },beginAtZero:!spec.horizontal } },
+        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
+        scales:{ x:{ grid:{ display:spec.horizontal,color:'#e5e9ee' }, border:{ display:false }, title:{display:spec.horizontal,text:spec.axisUnit,color:'#687586',font:{size:12}},ticks:{ color:'#687586',font:{ size:11 },maxRotation:0,callback:spec.horizontal ? v => compact(v,spec.currency) : undefined },beginAtZero:spec.horizontal }, y:{ grid:{ display:!spec.horizontal,color:'#e5e9ee' },border:{ display:false },title:{display:!spec.horizontal,text:spec.axisUnit,color:'#687586',align:'end',font:{size:12}},ticks:{ color:'#687586',font:{ size:11 },precision:spec.currency?undefined:0,callback:spec.horizontal ? undefined : v => compact(v,spec.currency) },beginAtZero:!spec.horizontal } },
         onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index); }
       }
     });
     return () => chart.destroy();
-  }, [signature,available]);
-  return <article className="panel"><div className="panel-header"><div><h2>{title}</h2><p>{subtitle}</p></div></div>{children}<div className={'chart-wrap' + (horizontal ? ' tall' : '')}>{available ? <canvas ref={canvas} role="img" aria-label={title} /> : <p className="empty">No data available</p>}</div><details className="data-table"><summary>View exact values &amp; source rows</summary><DataTable columns={columns} rows={rows} /></details></article>;
+  }, [signature,available,view]);
+  return <article className="panel chart-panel"><div className="panel-header"><div><h2 id={id+'-title'}>{title}</h2><p>{subtitle}</p></div><div className="chart-view-toggle" role="group" aria-label={title+' display'}>{[['chart','Chart'],['table','Table']].map(([key,label])=><button key={key} type="button" aria-pressed={view===key} aria-controls={id+'-content'} title={'Show '+label.toLowerCase()} onClick={()=>setView(key)}>{key==='chart'?<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3v14h14M5 12l4-5 4 3 4-5"/></svg>:<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="1"/><path d="M3 8h14M3 12h14M8 4v12"/></svg>}<span>{label}</span></button>)}</div></div>{children}<div id={id+'-content'} aria-labelledby={id+'-title'}>{view==='chart'?<div className={'chart-wrap' + (horizontal ? ' tall' : '')}>{available ? <canvas ref={canvas} role="img" aria-label={title} /> : <p className="empty">No observations available for this selection</p>}</div>:<div className="chart-table-view"><DataTable columns={columns} rows={rows}/></div>}</div>{onPoint && <p className="chart-help">{interactionHint || 'Select a data point to explore its details.'}</p>}</article>;
 }
