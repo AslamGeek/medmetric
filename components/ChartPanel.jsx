@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
+import { chartScales } from '../lib/chart-scales.js';
 
 export const colors = ['#3489e0','#e65722','#8b79b9','#239d98','#b99a64'];
 export const exact = (value, currency = false) => value == null ? '—' : (currency ? '₹' : '') + Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -34,7 +35,7 @@ export default function ChartPanel({ title, subtitle, labels, datasets, currency
         responsive:true, maintainAspectRatio:false, indexAxis:spec.horizontal ? 'y' : 'x', animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration:200 },
         interaction:{ mode:spec.horizontal ? 'nearest' : 'index', intersect:false },
         plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
-        scales:{ x:{ grid:{ display:spec.horizontal,color:'#e5e9ee' }, border:{ display:false }, title:{display:spec.horizontal,text:spec.axisUnit,color:'#687586',font:{size:12}},ticks:{ color:'#687586',font:{ size:11 },maxRotation:0,callback:spec.horizontal ? v => compact(v,spec.currency) : undefined },beginAtZero:spec.horizontal }, y:{ grid:{ display:!spec.horizontal,color:'#e5e9ee' },border:{ display:false },title:{display:!spec.horizontal,text:spec.axisUnit,color:'#687586',align:'end',font:{size:12}},ticks:{ color:'#687586',font:{ size:11 },precision:spec.currency?undefined:0,callback:spec.horizontal ? undefined : v => compact(v,spec.currency) },beginAtZero:!spec.horizontal } },
+        scales:chartScales(spec,v=>compact(v,spec.currency)),
         onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index); }
       }
     });
