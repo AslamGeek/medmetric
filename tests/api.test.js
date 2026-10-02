@@ -4,7 +4,7 @@ process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleData } from '../lib/api.js';
-import { readSheet, tableRecords } from '../lib/sheets.js';
+import { readSheet, tableRecords, createSheetCache, readSheetWithRetry, AppError } from '../lib/sheets.js';
 import { HEADERS, prepareData, dashboardModel, drilldownModel } from '../lib/analytics.js';
 
 const totals = [
@@ -97,7 +97,37 @@ test('backend configuration does not require a dashboard access code',async()=>{
   assert.equal(backendConfigured(),true);
 });
 test('backend rejection and HTML login responses fail closed',async()=>{
-  for(const response of [Response.json({ok:false,error:'Unauthorized'}),new Response('<html>Login</html>')])await assert.rejects(()=>readSheet(process.env.MEDMETRIC_ACCESS_CODE,async()=>response),e=>e.status===502);
+  for(const response of [Response.json({ok:false,error:'Unauthorized'}),new Response('<html>Login</html>')])await assert.rejects(()=>readSheet(async()=>response),e=>e.status===502);
+});
+
+test('snapshot contains prepared analytics but excludes unused configuration notes',async()=>{
+  let forced;
+  const res=await handleData(request({force:true}),'snapshot',async force=>{forced=force;return data();});
+  const body=await res.json();
+  assert.equal(res.status,200);assert.equal(forced,true);
+  assert.equal(body.sales.length,3);assert.equal(body.config.length,3);
+  assert.deepEqual(body.config,[{},{},{}]);assert.ok(body.loadedAt);
+  assert.equal(dashboardModel(body,{product:'sku:ONE'}).topProducts[0].units,15);
+});
+
+test('server shares simultaneous reads and explicit refresh bypasses cached data',async()=>{
+  let calls=0, clock=0;
+  const cached=createSheetCache(async()=>{calls++;return data();},60000,()=>clock);
+  const [first,second]=await Promise.all([cached(),cached()]);
+  assert.equal(calls,1);assert.equal(first,second);
+  clock=1000;assert.equal(await cached(),first);assert.equal(calls,1);
+  await cached(true);assert.equal(calls,2);
+  clock=62000;await cached();assert.equal(calls,3);
+});
+
+test('a transient sheet timeout retries once, while invalid configuration does not',async()=>{
+  let calls=0;
+  const result=await readSheetWithRetry(async()=>{if(++calls===1)throw new DOMException('timeout','TimeoutError');return data();});
+  assert.equal(calls,2);assert.equal(result.sales.length,3);
+  calls=0;await assert.rejects(readSheetWithRetry(async()=>{calls++;throw new AppError(503,'configure');}),/configure/);
+  assert.equal(calls,1);
+  calls=0;await assert.rejects(readSheetWithRetry(async()=>{calls++;throw new DOMException('timeout','TimeoutError');}),/timeout/);
+  assert.equal(calls,2);
 });
 test('upstream internals and tokens are not leaked in unexpected errors',async()=>{
   const res=await handleData(request(),'dashboard',()=>{throw Error('private-access-token credential');});assert.equal(res.status,502);assert.ok(!(await res.text()).includes('credential'));

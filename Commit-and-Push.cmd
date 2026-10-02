@@ -29,14 +29,17 @@ $appFiles = @(
     'app/api/config/route.js',
     'app/api/dashboard/route.js',
     'app/api/drilldown/route.js',
+    'app/api/snapshot/route.js',
     'components/Dashboard.jsx',
     'components/ChartPanel.jsx',
     'lib/analytics.js',
     'lib/api.js',
     'lib/sheets.js',
+    'lib/dashboard-session.js',
     'scripts/check-deployment.js',
     'tests/api.test.js',
     'tests/backend.test.js',
+    'tests/dashboard-session.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
 )

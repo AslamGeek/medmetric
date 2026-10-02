@@ -1,13 +1,14 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import ChartPanel, { compact, exact, monthLabel, DataTable } from './ChartPanel.jsx';
+import { createDashboardSession } from '../lib/dashboard-session.js';
 
 const productLink = (label, action) => <button type="button" onClick={action}>{label}</button>;
 const numeric = (label,key,currency=false) => ({ label,numeric:true,render:r => exact(r[key],currency) });
 async function api(path, body, signal) {
   const response = await fetch('/api/' + path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body), cache:'no-store',signal });
   let result;
-  try { result = await response.json(); } catch { throw new Error('The server did not return a valid response. Refresh and try again.'); }
+  try { result = await response.json(); } catch { throw new Error(response.status===504 ? 'The sheet took too long to load. Please retry.' : 'Could not load the dashboard. Please retry.'); }
   if (!response.ok) { const error = new Error(result.error || 'Unable to load data.'); error.status = response.status; throw error; }
   return result;
 }
@@ -18,29 +19,40 @@ export default function Dashboard() {
   const [maxUnits,setMaxUnits] = useState('0'), [minAge,setMinAge] = useState('');
   const [drill,setDrill] = useState(null), [drillData,setDrillData] = useState(null), [drillError,setDrillError] = useState('');
   const dialog = useRef(null);
+  const [snapshot,setSnapshot] = useState(null);
+  const [session] = useState(()=>createDashboardSession(force=>api('snapshot',{force},AbortSignal.timeout(55000))));
 
   useEffect(() => {
-    const controller = new AbortController();
+    let active=true;
+    if(refresh===0){
+      try {
+        const cached=JSON.parse(localStorage.getItem('medmetric-snapshot-v1'));
+        const restored=session.restore(cached);if(restored)setSnapshot(restored);
+      } catch { /* A blocked or missing browser cache does not prevent loading. */ }
+    }
     setLoading(true); setError('');
-    api('dashboard',{ filters },controller.signal).then(result => {
-      if(controller.signal.aborted)return;
-      setData(result); setMaxUnits(String(result.filters.maxUnits)); setMinAge(result.filters.minAge == null ? '' : String(result.filters.minAge));
+    session.load(refresh>0).then(result => {
+      if(!active)return;
+      setSnapshot(result);
+      try {localStorage.setItem('medmetric-snapshot-v1',JSON.stringify(result));}catch { /* Storage is optional. */ }
     }).catch(e => {
-      if(controller.signal.aborted)return;
-      setError(e.message);
-    }).finally(() => { if(!controller.signal.aborted)setLoading(false); });
-    return () => controller.abort();
-  }, [filters,refresh]);
+      if(!active)return;
+      setError(['TimeoutError','AbortError'].includes(e.name)?'The sheet took too long to load. Please retry.':e.message);
+    }).finally(() => { if(active)setLoading(false); });
+    return () => {active=false;};
+  }, [session,refresh]);
+  useEffect(()=>{
+    if(!snapshot)return;
+    try {
+      const result=session.dashboard(filters);
+      setData(result);setMaxUnits(String(result.filters.maxUnits));setMinAge(result.filters.minAge==null?'':String(result.filters.minAge));
+    } catch(e){setError(e.message);}
+  },[session,snapshot,filters]);
   useEffect(() => {
     if(!drill) { dialog.current?.close(); return; }
     dialog.current?.showModal(); setDrillData(null); setDrillError('');
-    const controller = new AbortController();
-    api('drilldown',{ filters:data?.filters || {},request:drill },controller.signal).then(result => { if(!controller.signal.aborted)setDrillData(result); }).catch(e => {
-      if(controller.signal.aborted)return;
-      setDrillError(e.message);
-    });
-    return () => controller.abort();
-  }, [drill,data]);
+    try {setDrillData(session.drilldown(data?.filters || {},drill));}catch(e){setDrillError(e.message);}
+  }, [session,drill,data]);
 
   function update(patch) {
     const f={...data?.filters,...patch};
@@ -64,8 +76,8 @@ export default function Dashboard() {
     <header className="topbar"><a className="identity" href="#overview" aria-label="MedMetric overview"><span className="mark" aria-hidden="true">m<span>•</span></span><span>MEDMETRIC<span className="identity-sub">SALES INTELLIGENCE</span></span></a><nav aria-label="Dashboard sections"><a className="active" href="#overview">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav><div className="account-actions"><span className="readonly"><span />Read-only workspace</span></div></header>
     <main id="overview">
       <div className="page-heading"><div><p className="eyebrow">A CLEARER VIEW OF YOUR BUSINESS</p><h1>MedMetric Sales Intelligence</h1><p className="subtitle">Agency Stock &amp; Sales Analytics</p></div>{<div className="heading-actions"><span className="muted">{data?'Loaded '+new Date(data.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Reading your sheet'}</span><button className="button" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>↻ &nbsp; Refresh data</button></div>}</div>
-      {error && <div className="message error" role="alert">{error}</div>}
-      {!data && <section className="panel"><p role="status">{loading?'Reading agency statements and product mappings…':'No data loaded yet.'}</p>{!loading && <button className="button" onClick={()=>setRefresh(v=>v+1)}>Retry</button>}</section>}
+      {error && <div className="message error" role="alert">{data?'Could not refresh. Your last loaded data is still available. ':''}{error}</div>}
+      {!data && <section className="panel"><p role="status">{loading?'Loading dashboard…':'No data loaded yet.'}</p>{!loading && <button className="button" onClick={()=>setRefresh(v=>v+1)}>Retry</button>}</section>}
       {data && <>
         <fieldset className="filters" disabled={loading} aria-label="Dashboard filters">
           <label>From month<select value={f.start} onChange={e=>update({start:e.target.value})}>{o.months.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}</select></label>
