@@ -1,4 +1,5 @@
 'use client';
+import {useState} from 'react';
 import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage, DataTable } from './ChartPanel.jsx';
 
@@ -9,7 +10,8 @@ function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,sh
   })}</ul><span className="kpi-line primary-line"/></article>;
 }
 
-export default function ProductView({data,onSource,onAgency}) {
+export default function ProductView({data,onSource,onAgency,showInsights=true}) {
+  const [section,setSection]=useState('performance');
   const product=data.productDetail, monthly=product.monthly, f=data.filters;
   const labels=monthly.months.map(monthLabel);
   const agencyColor=agency=>['#3489e0','#e65722'][data.options.agencies.indexOf(agency)%2];
@@ -24,7 +26,8 @@ export default function ProductView({data,onSource,onAgency}) {
     {label:'Latest month vs prior',numeric:true,render:r=>r.growth==null?'—':<span className={r.growth<0?'negative':'positive'}>{percentage(r.growth)}</span>}];
   return <section id="product-detail" aria-label={`${product.name} product analysis`}>
     <div className="product-context"><div className="product-tags">{[product.brand,product.sku && 'SKU '+product.sku,...product.statuses].filter(Boolean).map(tag=><span key={tag}>{tag}</span>)}</div><button className="button" onClick={()=>onSource({productKey:product.key})}>View source rows ↗</button></div>
-    <div className="section-heading"><h2>Product performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
+    <nav className="product-report-tabs" aria-label="Product analysis views">{[['performance','Performance & insights'],['trends','Monthly charts'],['agencies','Agency breakdown']].map(([key,label])=><button type="button" key={key} aria-pressed={section===key} onClick={()=>setSection(key)}>{label}</button>)}</nav>
+    <div hidden={section!=='performance'}><div className="section-heading"><h2>Product performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
     <section className="kpi-grid" aria-label="Product metrics">{[
       ['Units sold','units',false,'Selected period'],['Units restocked','purchased',false,'Selected period'],
       ['Closing stock','qoh',false,'Units remaining · '+monthLabel(f.end)],['Stock value','value',true,'Closing inventory · '+monthLabel(f.end)]
@@ -36,21 +39,21 @@ export default function ProductView({data,onSource,onAgency}) {
       <MetricCard label="Estimated stock cover" value={product.metrics.stockCoverage.value} unit="months" note={'Closing stock ÷ units sold in '+monthLabel(f.end)} agencies={product.agencies} onAgency={onAgency} colors={agencyColor} readValue={a=>a.stockCoverage} formatValue={stockMonths} reason={product.metrics.stockCoverage.reason}/>
     </section>
     <p className="product-metric-note">Select an agency in any card to focus the product view. Percentages use complete, comparable data. Restocked − sold is a receipt/sales gap, not the change in closing stock. Stock cover assumes the latest full-month sales pace continues; it is an estimate.</p>
-    <section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>
-    <div className="section-heading"><h2>Restocked vs sold</h2><span className="period-label">Monthly units · {labels[0] || '—'} to {labels.at(-1) || '—'}</span></div>
+    {showInsights&&<section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>}</div>
+    <div hidden={section!=='trends'}><div className="section-heading"><h2>Restocked vs sold</h2><span className="period-label">Monthly units · {labels[0] || '—'} to {labels.at(-1) || '—'}</span></div>
     <div className="chart-grid product-monthly-charts">
-      {monthly.agencies.map(series=><ChartPanel key={series.agency} title={series.agency+': '+product.name+' — restocked vs sold'} subtitle="Monthly units · blue = restocked · orange = sold · common scale across agencies" type="bar" unit="Units" labels={labels} valueRange={valueRange} takeaway={series.takeaway} coverage={series.rows.map(r=>r.coverage)}
+      {monthly.agencies.map(series=><ChartPanel key={series.agency} title={series.agency+': '+product.name+' — restocked vs sold'} subtitle="Monthly units · blue = restocked · orange = sold · common scale across agencies" type="bar" unit="Units" labels={labels} valueRange={valueRange} takeaway={showInsights?series.takeaway:null} coverage={series.rows.map(r=>r.coverage)}
         datasets={[{label:'Restocked',data:series.rows.map(r=>r.purchased),color:'#3489e0'},{label:'Sold',data:series.rows.map(r=>r.units),color:'#e65722'}]}
         onPoint={i=>onSource({productKey:product.key,month:monthly.months[i],agency:series.agency})} interactionHint="Select a month to inspect this agency’s source rows. Missing observations appear as gaps or —."
         columns={[{...monthlyColumns[0],render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month,agency:series.agency})}>{monthLabel(r.month)}</button>},...monthlyColumns.slice(1),{label:'Coverage',key:'coverage'}]} rows={series.rows}/>)}
     </div>
     <div className="product-stock-chart">
-      <ChartPanel title={(fullStockMonths?'Month-end stock on hand: ':'Statement closing stock: ')+product.name} subtitle={fullStockMonths?'Units remaining at each month end · compare agencies':'Closing units by statement month · partial statements may end before month-end'} unit="Units" labels={labels} takeaway={monthly.stockTakeaways} coverage={monthly.months.map((_,i)=>monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · '))}
+      <ChartPanel title={(fullStockMonths?'Month-end stock on hand: ':'Statement closing stock: ')+product.name} subtitle={fullStockMonths?'Units remaining at each month end · compare agencies':'Closing units by statement month · partial statements may end before month-end'} unit="Units" labels={labels} takeaway={showInsights?monthly.stockTakeaways:null} coverage={monthly.months.map((_,i)=>monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · '))}
         datasets={monthly.agencies.map(series=>({label:series.agency,data:series.rows.map(r=>r.qoh),color:['#3489e0','#e65722'][data.options.agencies.indexOf(series.agency)%2]}))}
         onPoint={i=>onSource({productKey:product.key,month:monthly.months[i]})} interactionHint="Select a month to inspect its stock observations. Gaps mean the observation is missing."
         columns={[monthlyColumns[0],...monthly.agencies.map((series,i)=>({label:series.agency+' stock units',numeric:true,render:r=>exact(r.values[i])})),{label:'Coverage',render:r=>monthly.agencies.map(series=>series.agency+': '+series.rows[r.index].coverage).join(' · ')}]}
         rows={monthly.months.map((month,i)=>({month,index:i,values:monthly.agencies.map(series=>series.rows[i].qoh)}))}/>
     </div>
-    <article className="panel product-agencies"><div className="panel-header"><div><h2>Agency sales &amp; stock</h2><p>Sales and receipts cover the selected period. Closing stock is the {monthLabel(f.end)} snapshot.</p></div><span className="tag">{product.observations} source rows</span></div><DataTable columns={agencyColumns} rows={product.agencies}/><p>Growth compares {monthLabel(f.end)} with {monthLabel(product.previousMonth)} using complete statements. Combined totals require observations for every selected agency and month. Missing observations are shown as —. Select an agency to focus this product’s analysis.</p></article>
+    </div><article hidden={section!=='agencies'} className="panel product-agencies"><div className="panel-header"><div><h2>Agency sales &amp; stock</h2><p>Sales and receipts cover the selected period. Closing stock is the {monthLabel(f.end)} snapshot.</p></div><span className="tag">{product.observations} source rows</span></div><DataTable columns={agencyColumns} rows={product.agencies}/><p>Growth compares {monthLabel(f.end)} with {monthLabel(product.previousMonth)} using complete statements. Combined totals require observations for every selected agency and month. Missing observations are shown as —. Select an agency to focus this product’s analysis.</p></article>
   </section>;
 }
