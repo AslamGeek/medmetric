@@ -6,6 +6,8 @@ Overview, Products and Inventory are separate views. Selecting a product from a 
 
 Product charts show monthly Restocked vs Sold bars separately for each agency, plus month-end stock unit lines comparing agencies. Every chart has top-right Chart/Table buttons for its exact plotted values. Missing observations stay gaps or —; actual zero values remain zero. Chart and month-table clicks open the corresponding source rows, scoped to the agency when applicable.
 
+Agency comparison bars share one value scale. Product totals require observations for each selected agency and month, and agency-share insights require comparable full-month coverage. Idle-product insights aggregate aliases by SKU first. Three-month patterns stay within the chart's displayed period. Each product chart has a takeaway using its plotted values, with partial coverage visible in tooltips and tables. The loaded timestamp includes its date so saved snapshots remain identifiable.
+
 The browser loads one snapshot and saves it locally. Filters, charts, source-row drilldowns and page reloads reuse that snapshot until Refresh data is clicked. A failed refresh preserves the previous snapshot. If browser storage is blocked or cleared, the next page load must fetch data again. The server shares concurrent reads and caches successful snapshots for one minute; Refresh data bypasses that cache. No Apps Script update is required for these frontend changes.
 
 Edit charts in components/ and calculations in lib/analytics.js. Double-click Commit-and-Push.cmd to publish app changes. The publisher uses this folder directly. Backend changes require updating Code.gs in the existing Apps Script project and its existing deployment.

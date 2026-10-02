@@ -75,3 +75,56 @@ test('an agency monthly chart drills into that agency, product and month only',(
   const result=drilldownModel(fixture(),{product:'sku:A'},{productKey:'sku:A',month:'2026-08',agency:'MEDA'});
   assert.equal(result.rows.length,1);assert.equal(result.rows[0].agency,'MEDA');assert.equal(result.rows[0].month,'2026-08');assert.equal(result.rows[0].units,20);
 });
+
+test('missing agency-months cannot produce complete totals or agency-share claims',()=>{
+  const p=dashboardModel(fixture({missing:true}),{product:'sku:A',start:'2026-07',end:'2026-09'}).productDetail;
+  assert.equal(p.metrics.units,null);
+  assert.equal(p.agencies.find(a=>a.agency==='MEDA').units,null);
+  assert.ok(!p.insights.some(s=>s.includes('accounted for')||s.includes('more units than')||s.includes('Review stock allocation')));
+});
+
+test('agency shares require comparable periods, and single-agency focus makes no leadership claims',()=>{
+  for(const filters of [{product:'sku:A'},{product:'sku:A',agency:'MADHU'}]){
+    const p=dashboardModel(fixture({partial:true}),filters).productDetail;
+    assert.ok(!p.insights.some(s=>s.includes('accounted for')||s.includes('more units than')||s.includes('held the most')));
+  }
+});
+
+test('a zero-sale alias cannot label an actively selling product as having no sales',()=>{
+  const d=fixture();const active=d.sales.find(r=>r.productKey==='sku:A'&&r.agency==='MADHU'&&r.month==='2026-09');
+  d.sales.push({...active,rawName:'ANOTHER ALIAS',units:0,qoh:3,value:30,sheetRow:100});
+  const p=dashboardModel(d,{product:'sku:A'}).productDetail;
+  assert.ok(!p.insights.some(s=>s.includes('MADHU had stock remaining with no units sold')));
+});
+
+test('patterns stay within the displayed chart period and flat sales are called unchanged',()=>{
+  const range=dashboardModel(fixture(),{product:'sku:A',start:'2026-08',end:'2026-09'}).productDetail;
+  assert.ok(!range.insights.some(s=>s.includes('over three months')));
+  const d=fixture();for(const r of d.sales.filter(r=>r.productKey==='sku:A'&&r.month==='2026-09'))r.units=20;
+  const flat=dashboardModel(d,{product:'sku:A'}).productDetail;
+  assert.ok(flat.insights.some(s=>s.includes('unchanged')));
+  assert.ok(!flat.insights.some(s=>s.includes('up 0.0%')||s.includes('increased 0.0%')));
+});
+
+test('a missing financial statement leaves a trend gap rather than a false drop',()=>{
+  const d=fixture();d.monthly=d.monthly.filter(r=>!(r.agency==='MEDA'&&r.month==='2026-09'));
+  const trend=dashboardModel(d,{}).trend.financial.at(-1);
+  assert.equal(trend.partial,true);assert.equal(trend.primary,null);assert.equal(trend.secondary,null);
+});
+
+test('chart takeaways agree with plotted restocking, sales and stock values',()=>{
+  const d=fixture();const p=dashboardModel(d,{product:'sku:A'}).productDetail;
+  const madhu=p.monthly.agencies.find(a=>a.agency==='MADHU');
+  assert.match(madhu.takeaway,/restocked 40 units; sold 30 units/);assert.match(madhu.takeaway,/exceeded sales by 10 units/);
+  assert.ok(p.monthly.stockTakeaways.some(s=>s.includes('MADHU')&&s.includes('stayed at 20')));
+  const partial=dashboardModel(fixture({partial:true}),{product:'sku:A'}).productDetail;
+  assert.equal(partial.monthly.agencies[0].rows.at(-1).coverage,'Partial / unconfirmed');
+  assert.match(partial.monthly.agencies[0].takeaway,/partial or unconfirmed/);
+});
+
+test('small nonzero growth is never described as a zero-percent increase',()=>{
+  const d=fixture();for(const r of d.sales.filter(r=>r.productKey==='sku:A'))r.units=r.month==='2026-09'?10001:10000;
+  const p=dashboardModel(d,{product:'sku:A'}).productDetail;
+  assert.ok(!p.insights.some(s=>s.includes('up 0.0%')||s.includes('increased 0.0%')));
+  assert.ok(p.insights.some(s=>s.includes('<0.1%')));
+});
