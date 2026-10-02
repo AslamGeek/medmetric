@@ -34,6 +34,7 @@ $appFiles = @(
     'components/Dashboard.jsx',
     'components/FieldWorkspace.jsx',
     'components/DoctorDirectory.jsx',
+    'components/DoctorProfile.jsx',
     'components/ChartPanel.jsx',
     'components/ProductView.jsx',
     'components/ProductCatalog.jsx',
