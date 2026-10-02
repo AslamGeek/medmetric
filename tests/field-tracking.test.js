@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {randomUUID,createHmac} from 'node:crypto';
-import {FIELD_SPEC,validateFieldRecord,fieldProducts,latestPharmacyStock,targetActual,indiaToday} from '../lib/field-tracking.js';
+import {FIELD_SPEC,validateFieldRecord,fieldProducts,targetActual,indiaToday} from '../lib/field-tracking.js';
 import {handleFields,fieldBackend,shareFieldReads} from '../lib/field-server.js';
 const source=()=>({...Object.fromEntries(Object.keys(FIELD_SPEC).map(k=>[k,[]])),DOCTORS:[{Doctor_ID:'D1',Doctor_Name:'Doctor One',Pharmacy_ID:'P1'},{Doctor_ID:'D2',Pharmacy_ID:'P1'}],PHARMACIES:[{Pharmacy_ID:'P1'}],products:[{Product_SKU:'SYP',Product_Name:'Product syrup'},{Product_SKU:'DROPS',Product_Name:'Product drops'}],agencies:['AGENCY']});
 const rx=()=>({Rx_ID:randomUUID(),Reported_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Confirmation:'REPORTED'});
@@ -26,9 +26,8 @@ test('retries stay bounded and do not retry stale edits or permanent authorizati
  calls=0;const saved=await fieldBackend({action:'field_save',operation:'create',record:{Rx_ID:'same-id'}},async()=>{calls++;if(calls===1)throw new DOMException('timeout','TimeoutError');return Response.json({ok:true,record:{Rx_ID:'same-id'},alreadySaved:true});});assert.equal(saved.alreadySaved,true);assert.equal(calls,2);
  }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
 });
-test('unknown prescription dates and quantities stay unknown, while stock zero is valid',()=>{
+test('unknown prescription dates and quantities stay unknown',()=>{
  const d=source(),r=validateFieldRecord('RX_ACTIVITY',rx(),d,'2026-10-02');assert.equal(r.Prescription_Date,'');assert.equal(r.Quantity,'');
- const stock=validateFieldRecord('PHARMACY_STOCK_CHECKS',{Stock_Check_ID:randomUUID(),Checked_Date:'2026-10-01',Pharmacy_ID:'P1',Product_SKU:'SYP',Remaining_Units:0,Quantity_Unit:'BOTTLE',Source:'PHARMACIST'},d,'2026-10-02');assert.equal(stock.Remaining_Units,0);
 });
 test('writes reject invalid dates, unknown product IDs and source financial tables',()=>{
  const d=source();for(const patch of [{Product_SKU:'Product syrup'},{Doctor_ID:'unknown'},{Prescription_Date:'2026-02-30'},{Prescription_Date:'2026-10-03'},{Quantity:-1},{Quantity:3},{Rx_ID:'------------------------------------'}])assert.throws(()=>validateFieldRecord('RX_ACTIVITY',{...rx(),...patch},d,'2026-10-02'));
@@ -36,9 +35,6 @@ test('writes reject invalid dates, unknown product IDs and source financial tabl
 });
 test('existing catalogue preserves separate SKUs; conflicting canonical names fail',()=>{
  const config=[{Your_SKU:'SYP',Your_Product_Name:'Product syrup',Your_Status:'ACTIVE',Include_In_Charts:'YES'},{Your_SKU:'DROPS',Your_Product_Name:'Product drops',Your_Status:'ACTIVE',Include_In_Charts:'YES'}];assert.equal(fieldProducts(config).length,2);assert.throws(()=>fieldProducts([...config,{...config[0],Your_Product_Name:'Another name'}]));
-});
-test('shared pharmacy stock keeps the latest observation per SKU and unit, never a sum',()=>{
- const rows=[{Pharmacy_ID:'P1',Product_SKU:'SYP',Quantity_Unit:'BOTTLE',Checked_Date:'2026-09-29',Remaining_Units:10},{Pharmacy_ID:'P1',Product_SKU:'SYP',Quantity_Unit:'BOTTLE',Checked_Date:'2026-10-01',Remaining_Units:0},{Pharmacy_ID:'P1',Product_SKU:'SYP',Quantity_Unit:'PACK',Checked_Date:'2026-10-01',Remaining_Units:2}];const latest=latestPharmacyStock(rows);assert.equal(latest.length,2);assert.equal(latest.find(r=>r.Quantity_Unit==='BOTTLE').Remaining_Units,0);
 });
 test('secondary targets count every agency sale and never add prescriptions or POBs',()=>{
  const d=source();d.RX_ACTIVITY=[{Quantity:999}];d.POB_ACTIVITY=[{Booked_Units:999}];assert.equal(targetActual({Metric:'SECONDARY_REVENUE',Month:'2026-09'},d,[{month:'2026-09',agency:'A',secondary:100},{month:'2026-09',agency:'B',secondary:70}]),170);assert.equal(targetActual({Metric:'SECONDARY_REVENUE',Month:'2026-09',Agency:'B'},d,[{month:'2026-09',agency:'B',secondary:null}]),null);
@@ -60,19 +56,20 @@ test('public edit API passes only a fixed save command and rejects cross-origin 
 });
 function backendFixture(){
  const d=source(),tables=Object.fromEntries(Object.entries(FIELD_SPEC).map(([k,s])=>[k,[s.headers,...d[k].map(r=>s.headers.map(h=>r[h]||''))]]));
+ tables.PHARMACY_STOCK_CHECKS=[['Stock_Check_ID'],['retired-stock-check']];
  tables.PRODUCT_CONFIG=[['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'],['SYP','Product syrup','ACTIVE','YES'],['DROPS','Product drops','ACTIVE','YES']];
  tables.MONTHLY_TOTALS=[['','','','','','','Agency'],['','','','','','','AGENCY']];
  const calls={reads:[],writes:0};
- const sheet=name=>tables[name]?({getSheetId:()=>({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106}[name]||1),getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>{calls.reads.push(name);return Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));},setValues:values=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})}):null;
+ const sheet=name=>tables[name]?({getSheetId:()=>({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106,PHARMACY_STOCK_CHECKS:610020104}[name]||1),getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>{calls.reads.push(name);return Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));},setValues:values=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})}):null;
  const secret='synthetic-field-secret-12345678901234567890',cache=new Map();
- const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet,deleteSheet:sheet=>{for(const name of ['RX_ACTIVITY','FOLLOW_UPS','TARGETS'])if(tables[name]&&({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106}[name]===sheet.getSheetId()))delete tables[name];}}),flush:()=>{}}});
+ const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet,deleteSheet:sheet=>{for(const name of ['RX_ACTIVITY','FOLLOW_UPS','TARGETS','PHARMACY_STOCK_CHECKS'])if(tables[name]&&({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106,PHARMACY_STOCK_CHECKS:610020104}[name]===sheet.getSheetId()))delete tables[name];}}),flush:()=>{}}});
  vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
  function call(command){const payload=JSON.stringify({...command,timestamp:Date.now(),nonce:randomUUID()});return context.doPost({postData:{contents:JSON.stringify({payload,signature:createHmac('sha256',secret).update(payload).digest('hex')})}});}
  return {tables,call,calls};
 }
 test('signed backend saves once, retries idempotently and leaves pharmacy stock and revenue untouched',()=>{
  const f=backendFixture(),before=JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),r=({POB_ID:randomUUID(),Booking_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Booked_Units:10,Quantity_Unit:'BOTTLE',Status:'BOOKED'});const first=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(first.ok,true,first.error);const again=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(again.alreadySaved,true);assert.equal(f.tables.POB_ACTIVITY.length,2);assert.equal(JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),before);
- const read=f.call({action:'field_read'});assert.equal(read.ok,true,read.error);assert.equal(read.data.POB_ACTIVITY[0].Doctor_ID,'D1');assert.equal(read.data.products.length,2);assert.equal('RX_ACTIVITY' in f.tables,false);assert.equal('FOLLOW_UPS' in f.tables,false);assert.equal('TARGETS' in f.tables,false);assert.equal('DOCTOR_PRODUCTS' in f.tables,true);assert.equal('MONTHLY_TOTALS' in f.tables,true);
+ const read=f.call({action:'field_read'});assert.equal(read.ok,true,read.error);assert.equal(read.data.POB_ACTIVITY[0].Doctor_ID,'D1');assert.equal(read.data.products.length,2);assert.equal('RX_ACTIVITY' in f.tables,false);assert.equal('FOLLOW_UPS' in f.tables,false);assert.equal('TARGETS' in f.tables,false);assert.equal('PHARMACY_STOCK_CHECKS' in f.tables,false);assert.equal('DOCTOR_PRODUCTS' in f.tables,true);assert.equal('MONTHLY_TOTALS' in f.tables,true);
 });
 test('signed backend rejects master/financial edits and saves notes as literal text',()=>{
  const f=backendFixture();assert.equal(f.call({action:'field_save',table:'MONTHLY_TOTALS',operation:'create',record:{}}).ok,false);
@@ -105,4 +102,8 @@ test('doctor product links cannot use a pharmacy other than the doctor master',(
 test('an explicit field refresh bypasses a previously started shared server read',async()=>{
  let reads=0,release;const loader=shareFieldReads(command=>{reads++;return command.force?Promise.resolve({ok:true,data:{DOCTOR_PRODUCTS:[]}}):new Promise(resolve=>{release=resolve;});});
  const old=loader({action:'field_read'});await Promise.resolve();const fresh=await loader({action:'field_read',force:true});assert.equal(reads,2);assert.equal(fresh.data.DOCTOR_PRODUCTS.length,0);release({ok:true});await old;
+});
+
+test('removed pharmacy stock records cannot be saved through the signed backend',()=>{
+ const f=backendFixture();const result=f.call({action:'field_save',table:'PHARMACY_STOCK_CHECKS',operation:'create',record:{Stock_Check_ID:randomUUID()}});assert.equal(result.ok,false);assert.match(result.error,/cannot be edited/);
 });

@@ -48,14 +48,14 @@ function doPost(e) {
 // User-requested cleanup runs only after the current tables have been read successfully.
 // Old deployments keep working until this updated deployment is activated.
 function removeRetiredTabs_(ss){
-  const cache=CacheService.getScriptCache();if(cache.get('retired-tabs-cleaned-v1'))return;
+  const cache=CacheService.getScriptCache();if(cache.get('retired-tabs-cleaned-v2'))return;
   const lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw new Error('Another save is in progress. Retry refresh.');
   try{
-    for(const [name,id] of [['RX_ACTIVITY',610020103],['FOLLOW_UPS',610020105],['TARGETS',610020106]]){
+    for(const [name,id] of [['RX_ACTIVITY',610020103],['FOLLOW_UPS',610020105],['TARGETS',610020106],['PHARMACY_STOCK_CHECKS',610020104]]){
       const sheet=ss.getSheetByName(name);
       if(sheet&&sheet.getSheetId()===id)ss.deleteSheet(sheet);
     }
-    cache.put('retired-tabs-cleaned-v1','done',21600);
+    cache.put('retired-tabs-cleaned-v2','done',21600);
   }finally{lock.releaseLock();}
 }
 function readFields_(ss,names=FIELD_TABLES,includeAgencies=true) {
@@ -139,12 +139,11 @@ const FIELD_SPEC = {
   PHARMACIES: {headers:'Pharmacy_ID,Pharmacy_Name,Area,Camp,Stockist,Identity_Status,Notes,Active'.split(',')},
   DOCTOR_PRODUCTS: {headers:'Link_ID,Doctor_ID,Product_SKU,Pharmacy_ID,Relationship,Start_Date,End_Date,Notes,Active'.split(','),required:['Doctor_ID','Product_SKU','Relationship','Active'],dates:['Start_Date','End_Date'],options:{Relationship:['EXISTING','DISCUSSION','OTHER'],Active:['YES','NO']}},
   RX_ACTIVITY: {headers:'Rx_ID,Prescription_Date,Reported_Date,Doctor_ID,Pharmacy_ID,Product_SKU,Quantity,Quantity_Unit,Confirmation,Notes,Created_At,Updated_At'.split(','),required:['Reported_Date','Doctor_ID','Product_SKU','Confirmation'],dates:['Prescription_Date','Reported_Date'],numbers:['Quantity'],options:{Confirmation:['REPORTED','CONFIRMED']}},
-  PHARMACY_STOCK_CHECKS: {headers:'Stock_Check_ID,Checked_Date,Pharmacy_ID,Product_SKU,Remaining_Units,Quantity_Unit,Source,Notes,Created_At,Updated_At'.split(','),required:['Checked_Date','Pharmacy_ID','Product_SKU','Remaining_Units','Quantity_Unit','Source'],dates:['Checked_Date'],numbers:['Remaining_Units'],options:{Source:['PHARMACIST','PHYSICAL_COUNT','OTHER']}},
   FOLLOW_UPS: {headers:'Follow_Up_ID,Doctor_ID,Pharmacy_ID,Product_SKU,Due_Date,Reason,Status,Completed_Date,Notes,Created_At,Updated_At'.split(','),required:['Due_Date','Reason','Status'],dates:['Due_Date','Completed_Date'],options:{Reason:['PRESCRIPTION_REVIEW','STOCK_CHECK','REPLENISHMENT_REVIEW','POB_REVIEW','PRODUCT_DISCUSSION','OTHER'],Status:['OPEN','DONE','CANCELLED']}},
   TARGETS: {headers:'Target_ID,Month,Scope,Agency,Doctor_ID,Pharmacy_ID,Product_SKU,Metric,Target_Value,Quantity_Unit,Notes,Active'.split(','),required:['Month','Scope','Metric','Target_Value','Active'],numbers:['Target_Value'],options:{Scope:['OVERALL','AGENCY','DOCTOR','PHARMACY'],Metric:['SECONDARY_REVENUE','RX_UNITS','POB_UNITS'],Active:['YES','NO']}},
   POB_ACTIVITY: {headers:'POB_ID,Booking_Date,Doctor_ID,Pharmacy_ID,Agency,Product_SKU,Booked_Units,Quantity_Unit,Status,Fulfilled_Units,Fulfilled_Date,Notes,Created_At,Updated_At'.split(','),required:['Booking_Date','Pharmacy_ID','Product_SKU','Booked_Units','Quantity_Unit','Status'],dates:['Booking_Date','Fulfilled_Date'],numbers:['Booked_Units','Fulfilled_Units'],options:{Status:['BOOKED','PARTIAL','FULFILLED','CANCELLED']}}
 };
-const FIELD_TABLES=['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','PHARMACY_STOCK_CHECKS','POB_ACTIVITY'];
+const FIELD_TABLES=['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','POB_ACTIVITY'];
 const QUANTITY_UNITS=['STOCK_UNIT','TABLET','STRIP','BOTTLE','SACHET','AMPOULE','VIAL','TUBE','PACK','OTHER'];
 function indiaToday(now=new Date()) {return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);}
 function fieldRecords(values,headers,name) {
@@ -170,7 +169,7 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
   const id=record[spec.headers[0]];if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id))throw new Error('Invalid activity ID.');
   for(const h of spec.required)if(!present(record[h]))throw new Error(h.replaceAll('_',' ')+' is required.');
   for(const h of spec.dates||[]){const v=record[h];if(!v)continue;if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||isNaN(Date.parse(v+'T12:00:00Z'))||new Date(v+'T12:00:00Z').toISOString().slice(0,10)!==v)throw new Error('Invalid '+h);
-    if(['Prescription_Date','Reported_Date','Checked_Date','Booking_Date','Fulfilled_Date','Completed_Date'].includes(h)&&v>today)throw new Error(h.replaceAll('_',' ')+' cannot be in the future.');}
+    if(['Prescription_Date','Reported_Date','Booking_Date','Fulfilled_Date','Completed_Date'].includes(h)&&v>today)throw new Error(h.replaceAll('_',' ')+' cannot be in the future.');}
   for(const h of spec.numbers||[]){if(!present(record[h]))continue;if(!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(String(record[h]))||!Number.isFinite(Number(record[h]))||Number(record[h])<0)throw new Error(h.replaceAll('_',' ')+' must be a non-negative number.');record[h]=Number(record[h]);}
   for(const [h,choices] of Object.entries(spec.options||{}))if(present(record[h])&&!choices.includes(record[h]))throw new Error('Invalid '+h);
   for(const [h,name,idKey] of [['Doctor_ID','DOCTORS','Doctor_ID'],['Pharmacy_ID','PHARMACIES','Pharmacy_ID']])if(record[h]&&!data[name]?.some(r=>r[idKey]===record[h]))throw new Error('Unknown '+h);
@@ -199,10 +198,6 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
     if(data.TARGETS?.some(r=>r.Target_ID!==id&&r.Active==='YES'&&record.Active==='YES'&&['Month','Scope','Agency','Doctor_ID','Pharmacy_ID','Product_SKU','Metric','Quantity_Unit'].every(h=>(r[h]||'')===(record[h]||''))))throw new Error('An active target already exists for this selection. Edit it instead.');
   }
   return record;
-}
-function latestPharmacyStock(rows) {
-  const latest=new Map();for(const r of rows){const key=JSON.stringify([r.Pharmacy_ID,r.Product_SKU,r.Quantity_Unit]);const prior=latest.get(key);if(!prior||r.Checked_Date>prior.Checked_Date||(r.Checked_Date===prior.Checked_Date&&(r.Created_At||'')>=(prior.Created_At||'')))latest.set(key,r);}
-  return [...latest.values()];
 }
 function targetActual(target,data,monthly) {
   const scope=r=>(!target.Doctor_ID||r.Doctor_ID===target.Doctor_ID)&&(!target.Pharmacy_ID||r.Pharmacy_ID===target.Pharmacy_ID)&&(!target.Product_SKU||r.Product_SKU===target.Product_SKU)&&(!target.Agency||r.Agency===target.Agency);
