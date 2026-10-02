@@ -4,8 +4,8 @@ import ChartPanel, { compact, exact, monthLabel, DataTable } from './ChartPanel.
 
 const productLink = (label, action) => <button type="button" onClick={action}>{label}</button>;
 const numeric = (label,key,currency=false) => ({ label,numeric:true,render:r => exact(r[key],currency) });
-async function api(path, token, body, signal) {
-  const response = await fetch('/api/' + path, { method:'POST', headers:{ 'Content-Type':'application/json',Authorization:'Bearer ' + token }, body:JSON.stringify(body), cache:'no-store',signal });
+async function api(path, body, signal) {
+  const response = await fetch('/api/' + path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body), cache:'no-store',signal });
   let result;
   try { result = await response.json(); } catch { throw new Error('The server did not return a valid response. Refresh and try again.'); }
   if (!response.ok) { const error = new Error(result.error || 'Unable to load data.'); error.status = response.status; throw error; }
@@ -13,53 +13,35 @@ async function api(path, token, body, signal) {
 }
 
 export default function Dashboard() {
-  const [config,setConfig] = useState(null), [accessCode,setAccessCode] = useState('');
-  const [token,setToken] = useState(''), [authBusy,setAuthBusy] = useState(false);
   const [data,setData] = useState(null), [filters,setFilters] = useState({}), [refresh,setRefresh] = useState(0);
-  const [loading,setLoading] = useState(false), [error,setError] = useState('');
+  const [loading,setLoading] = useState(true), [error,setError] = useState('');
   const [maxUnits,setMaxUnits] = useState('0'), [minAge,setMinAge] = useState('');
   const [drill,setDrill] = useState(null), [drillData,setDrillData] = useState(null), [drillError,setDrillError] = useState('');
-  const expiration = useRef(null), authGeneration = useRef(0), dialog = useRef(null);
+  const dialog = useRef(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/config', { cache:'no-store',signal:controller.signal }).then(r => { if(!r.ok)throw new Error('Cannot load app configuration. Please refresh.'); return r.json(); }).then(setConfig).catch(e => { if(e.name !== 'AbortError')setError(e.message); });
-    return () => { controller.abort(); clearTimeout(expiration.current); authGeneration.current++; };
-  }, []);
-  useEffect(() => {
-    if (!token) { setLoading(false); return; }
-    const controller = new AbortController();
     setLoading(true); setError('');
-    api('dashboard',token,{ filters },controller.signal).then(result => {
+    api('dashboard',{ filters },controller.signal).then(result => {
       if(controller.signal.aborted)return;
       setData(result); setMaxUnits(String(result.filters.maxUnits)); setMinAge(result.filters.minAge == null ? '' : String(result.filters.minAge));
     }).catch(e => {
       if(controller.signal.aborted)return;
-      if(e.status === 401 || e.status === 403) disconnect();
       setError(e.message);
     }).finally(() => { if(!controller.signal.aborted)setLoading(false); });
     return () => controller.abort();
-  }, [token,filters,refresh]);
+  }, [filters,refresh]);
   useEffect(() => {
-    if(!drill || !token) { dialog.current?.close(); return; }
+    if(!drill) { dialog.current?.close(); return; }
     dialog.current?.showModal(); setDrillData(null); setDrillError('');
     const controller = new AbortController();
-    api('drilldown',token,{ filters:data?.filters || {},request:drill },controller.signal).then(result => { if(!controller.signal.aborted)setDrillData(result); }).catch(e => {
+    api('drilldown',{ filters:data?.filters || {},request:drill },controller.signal).then(result => { if(!controller.signal.aborted)setDrillData(result); }).catch(e => {
       if(controller.signal.aborted)return;
-      if(e.status === 401 || e.status === 403) { disconnect(); setError(e.message); }
-      else setDrillError(e.message);
+      setDrillError(e.message);
     });
     return () => controller.abort();
-  }, [drill,token,data]);
+  }, [drill,data]);
 
-  function disconnect() {
-    authGeneration.current++; clearTimeout(expiration.current); setToken('');setData(null);setDrill(null);setDrillData(null);setAuthBusy(false);setLoading(false);
-  }
-  function connect(event) {
-    event.preventDefault();
-    if(!config?.configured || !accessCode.trim())return;
-    setError('');setData(null);setFilters({});setToken(accessCode.trim());setAccessCode('');
-  }
   function update(patch) {
     const f={...data?.filters,...patch};
     if(patch.start && patch.start > f.end)f.end=patch.start;
@@ -79,13 +61,12 @@ export default function Dashboard() {
   if(!financial)drillColumns.push({label:'Source line',key:'sourceLine'});
 
   return <>
-    <header className="topbar"><a className="identity" href="#overview" aria-label="MedMetric overview"><span className="mark" aria-hidden="true">m<span>•</span></span><span>MEDMETRIC<span className="identity-sub">SALES INTELLIGENCE</span></span></a><nav aria-label="Dashboard sections"><a className="active" href="#overview">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav><div className="account-actions"><span className="readonly"><span />Read-only workspace</span>{token && <button className="text-button" onClick={disconnect}>Disconnect</button>}</div></header>
+    <header className="topbar"><a className="identity" href="#overview" aria-label="MedMetric overview"><span className="mark" aria-hidden="true">m<span>•</span></span><span>MEDMETRIC<span className="identity-sub">SALES INTELLIGENCE</span></span></a><nav aria-label="Dashboard sections"><a className="active" href="#overview">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav><div className="account-actions"><span className="readonly"><span />Read-only workspace</span></div></header>
     <main id="overview">
-      <div className="page-heading"><div><p className="eyebrow">A CLEARER VIEW OF YOUR BUSINESS</p><h1>MedMetric Sales Intelligence</h1><p className="subtitle">Agency Stock &amp; Sales Analytics</p></div>{token && <div className="heading-actions"><span className="muted">{data?'Loaded '+new Date(data.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Reading your sheet'}</span><button className="button" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>↻ &nbsp; Refresh data</button></div>}</div>
+      <div className="page-heading"><div><p className="eyebrow">A CLEARER VIEW OF YOUR BUSINESS</p><h1>MedMetric Sales Intelligence</h1><p className="subtitle">Agency Stock &amp; Sales Analytics</p></div>{<div className="heading-actions"><span className="muted">{data?'Loaded '+new Date(data.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Reading your sheet'}</span><button className="button" disabled={loading} onClick={()=>setRefresh(v=>v+1)}>↻ &nbsp; Refresh data</button></div>}</div>
       {error && <div className="message error" role="alert">{error}</div>}
-      {!token && <section className="panel connection-panel"><span className="tag">PRIVATE WORKSPACE</span><h2>Your sales, in one place.</h2><p>Enter your private access code to open your dashboard.</p><form onSubmit={connect}><label htmlFor="access-code">Access code</label><input id="access-code" type="password" autoComplete="current-password" value={accessCode} onChange={e=>setAccessCode(e.target.value)} required /><button className="button connect-button" type="submit" disabled={!config?.configured || !accessCode.trim()}>Open dashboard</button></form><p className="scope-note">Your spreadsheet stays private and read-only.</p>{config && !config.configured && <p role="status">The data connection is being configured. Please try again shortly.</p>}{!config && !error && <p role="status">Loading connection…</p>}</section>}
-      {token && !data && <section className="panel"><p role="status">{loading?'Reading agency statements and product mappings…':'No data loaded yet.'}</p>{!loading && <button className="button" onClick={()=>setRefresh(v=>v+1)}>Retry</button>}</section>}
-      {token && data && <>
+      {!data && <section className="panel"><p role="status">{loading?'Reading agency statements and product mappings…':'No data loaded yet.'}</p>{!loading && <button className="button" onClick={()=>setRefresh(v=>v+1)}>Retry</button>}</section>}
+      {data && <>
         <fieldset className="filters" disabled={loading} aria-label="Dashboard filters">
           <label>From month<select value={f.start} onChange={e=>update({start:e.target.value})}>{o.months.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}</select></label>
           <label>To month<select value={f.end} onChange={e=>update({end:e.target.value})}>{o.months.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}</select></label>

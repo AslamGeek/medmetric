@@ -1,5 +1,4 @@
 import { createHmac } from 'node:crypto';
-process.env.MEDMETRIC_ACCESS_CODE='valid-test-token-long-enough';
 process.env.MEDMETRIC_BACKEND_SECRET='backend-secret-for-synthetic-tests-only';
 process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';
 import test from 'node:test';
@@ -25,15 +24,16 @@ const config = [
   { Raw_Product_Name:'EXCLUDED',Agency_Reference:'MADHU',Your_Product_Name:'Old product',Your_SKU:'OLD',Your_Brand_Group:'BRAND',Your_Status:'OLD_PACK',Include_In_Charts:'NO' }
 ];
 const data = () => prepareData(totals,raw,config,'Etc/UTC');
-const request = (body={filters:{}},headers={}) => new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer valid-test-token-long-enough',...headers},body:JSON.stringify(body)});
+const request = (body={filters:{}},headers={}) => new Request('https://medmetric.example/api/dashboard',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 
-test('unauthenticated requests cannot reach the sheet loader',async()=>{
-  let called=false;const res=await handleData(request({}, {Authorization:''}),'dashboard',async()=>{called=true;return data();});
-  assert.equal(res.status,401);assert.equal(called,false);assert.match(res.headers.get('cache-control'),/no-store/);
+test('dashboard opens without an access code or authorization header',async()=>{
+  let called=false;const res=await handleData(request(),'dashboard',async()=>{called=true;return data();});
+  assert.equal(res.status,200);assert.equal(called,true);assert.match(res.headers.get('cache-control'),/no-store/);
+  assert.equal((await res.json()).kpis.secondary,180);
 });
-test('authorization token is passed only to the sheet loader',async()=>{
-  let received;const res=await handleData(request(),'dashboard',async token=>{received=token;return data();});
-  assert.equal(res.status,200);assert.equal(received,'valid-test-token-long-enough');assert.ok(!(await res.text()).includes('valid-test-token-long-enough'));
+test('drilldown also works without login',async()=>{
+  const res=await handleData(request({request:{kind:'product'}}),'drilldown',async()=>data());
+  assert.equal(res.status,200);assert.ok((await res.json()).rows.length>0);
 });
 test('cross-origin requests are rejected before reading data',async()=>{
   const res=await handleData(request({}, {Origin:'https://untrusted.example'}),'dashboard',()=>{throw Error('must not load');});assert.equal(res.status,403);
@@ -84,16 +84,17 @@ test('source records validate headers and ignore unrequested columns',()=>{
 });
 test('signed Apps Script request reads three tables without forwarding access code',async()=>{
   const groups=[totals,raw,config],names=['MONTHLY_TOTALS','SALES_RAW','PRODUCT_CONFIG'];
-  const fetched=await readSheet(process.env.MEDMETRIC_ACCESS_CODE,async(url,options)=>{
+  const fetched=await readSheet(async(url,options)=>{
     assert.equal(url,process.env.APPS_SCRIPT_URL);assert.equal(options.method,'POST');assert.equal(options.cache,'no-store');
     const packet=JSON.parse(options.body);
     assert.equal(packet.signature,createHmac('sha256',process.env.MEDMETRIC_BACKEND_SECRET).update(packet.payload).digest('hex'));
-    assert.ok(!options.body.includes(process.env.MEDMETRIC_ACCESS_CODE));assert.ok(!options.body.includes(process.env.MEDMETRIC_BACKEND_SECRET));
+    assert.ok(!options.body.includes(process.env.MEDMETRIC_BACKEND_SECRET));
     return Response.json({ok:true,valueRanges:groups.map((rows,i)=>({values:[HEADERS[names[i]],...rows.map(r=>HEADERS[names[i]].map(h=>r[h]??''))]}))});
   });assert.equal(dashboardModel(fetched,{}).kpis.secondary,180);
 });
-test('incorrect access code never reaches Apps Script',async()=>{
-  let called=false;await assert.rejects(()=>readSheet('wrong',()=>{called=true;}),e=>e.status===401);assert.equal(called,false);
+test('backend configuration does not require a dashboard access code',async()=>{
+  const {backendConfigured}=await import('../lib/sheets.js');
+  assert.equal(backendConfigured(),true);
 });
 test('backend rejection and HTML login responses fail closed',async()=>{
   for(const response of [Response.json({ok:false,error:'Unauthorized'}),new Response('<html>Login</html>')])await assert.rejects(()=>readSheet(process.env.MEDMETRIC_ACCESS_CODE,async()=>response),e=>e.status===502);
