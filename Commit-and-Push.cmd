@@ -32,6 +32,8 @@ $appFiles = @(
     'app/api/snapshot/route.js',
     'components/Dashboard.jsx',
     'components/ChartPanel.jsx',
+    'components/ProductView.jsx',
+    'components/ProductCatalog.jsx',
     'lib/analytics.js',
     'lib/api.js',
     'lib/sheets.js',
@@ -40,6 +42,7 @@ $appFiles = @(
     'tests/api.test.js',
     'tests/backend.test.js',
     'tests/dashboard-session.test.js',
+    'tests/product-detail.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
 )
