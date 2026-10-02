@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-field-backend.js",
     "build": "next build",
     "start": "next start",
+    "pretest": "node scripts/build-field-backend.js",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check-deployment.js"
   },
