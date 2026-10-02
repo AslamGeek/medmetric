@@ -107,3 +107,23 @@ test('an explicit field refresh bypasses a previously started shared server read
 test('removed pharmacy stock records cannot be saved through the signed backend',()=>{
  const f=backendFixture();const result=f.call({action:'field_save',table:'PHARMACY_STOCK_CHECKS',operation:'create',record:{Stock_Check_ID:randomUUID()}});assert.equal(result.ok,false);assert.match(result.error,/cannot be edited/);
 });
+
+test('signed doctor creates retry safely, edits protect concurrent changes and the pharmacy stays fixed',()=>{
+ const f=backendFixture(),record={Doctor_ID:randomUUID(),Doctor_Name:'New Doctor',Hospital:'Clinic',Specialties:'General',Pharmacy_ID:'P1',Area:'Area',Camp:'Camp',Prescriber_Status:'NRx',Potential:'A',Active:'YES'};
+ const financial=JSON.stringify(f.tables.MONTHLY_TOTALS);f.calls.reads=[];
+ const created=f.call({action:'field_save',table:'DOCTORS',operation:'create',record});assert.equal(created.ok,true,created.error);assert.deepEqual(f.calls.reads,['DOCTORS','PHARMACIES']);
+ const size=f.tables.DOCTORS.length;assert.equal(f.call({action:'field_save',table:'DOCTORS',operation:'create',record}).alreadySaved,true);assert.equal(f.tables.DOCTORS.length,size);
+ const duplicate=f.call({action:'field_save',table:'DOCTORS',operation:'create',record:{...record,Doctor_ID:randomUUID()}});assert.equal(duplicate.ok,false);assert.match(duplicate.error,/already exists/);assert.equal(f.tables.DOCTORS.length,size);
+ const edited=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Updated',Prescriber_Status:'Rx'},previous:created.record});assert.equal(edited.ok,true,edited.error);
+ const stale=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Old edit'},previous:created.record});assert.equal(stale.ok,false);assert.match(stale.error,/changed since/);
+ f.tables.PHARMACIES.push(FIELD_SPEC.PHARMACIES.headers.map(h=>h==='Pharmacy_ID'?'P2':''));
+ const changedPharmacy=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...edited.record,Pharmacy_ID:'P2'},previous:edited.record});assert.equal(changedPharmacy.ok,false);assert.match(changedPharmacy.error,/pharmacy is fixed/);
+ assert.equal(JSON.stringify(f.tables.MONTHLY_TOTALS),financial);
+});
+test('doctor validation preserves imported IDs, rejects unknown pharmacies and protects column order',()=>{
+ const d=source(),existing={...d.DOCTORS[0],Area:'Area',Camp:'Camp',Prescriber_Status:'Rx',Active:'YES'};d.DOCTORS[0]=existing;
+ assert.equal(validateFieldRecord('DOCTORS',{...existing,Notes:'Edit imported doctor'},d).Doctor_ID,'D1');
+ assert.throws(()=>validateFieldRecord('DOCTORS',{...existing,Doctor_ID:randomUUID(),Pharmacy_ID:'Unknown'},d),/Unknown Pharmacy/);
+ const f=backendFixture();[f.tables.DOCTORS[0][1],f.tables.DOCTORS[0][2]]=[f.tables.DOCTORS[0][2],f.tables.DOCTORS[0][1]];
+ const result=f.call({action:'field_save',table:'DOCTORS',operation:'create',record:{...existing,Doctor_ID:randomUUID()}});assert.equal(result.ok,false);assert.match(result.error,/column order/);assert.equal(f.calls.writes,0);
+});

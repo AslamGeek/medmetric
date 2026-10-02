@@ -58,16 +58,19 @@ function removeRetiredTabs_(ss){
     cache.put('retired-tabs-cleaned-v2','done',21600);
   }finally{lock.releaseLock();}
 }
-function readFields_(ss,names=FIELD_TABLES,includeAgencies=true) {
+function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=true) {
   const data={};
   for(const name of names){
     const sheet=ss.getSheetByName(name);if(!sheet)throw new Error('Missing '+name+' tab.');
     const values=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),FIELD_SPEC[name].headers.length).getValues().map(row=>row.map(v=>v instanceof Date?Utilities.formatDate(v,ss.getSpreadsheetTimeZone()||'Asia/Kolkata','yyyy-MM-dd'):v));
+    if(!FIELD_SPEC[name].headers.every((header,i)=>String(values[0][i]||'').trim()===header))throw new Error(name+' headers changed. Restore the expected column order before saving.');
     data[name]=fieldRecords(values,FIELD_SPEC[name].headers,name);
   }
+  if(includeProducts){
   const config=ss.getSheetByName('PRODUCT_CONFIG');
   const headers=['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'];
   data.products=fieldProducts(fieldRecords(config.getRange(1,1,Math.max(1,config.getLastRow()),12).getValues(),headers,'PRODUCT_CONFIG'));
+  }
   if(includeAgencies){
   const totals=ss.getSheetByName('MONTHLY_TOTALS');
   const agencyValues=totals.getRange(1,7,Math.max(1,totals.getLastRow()),1).getValues();
@@ -78,7 +81,7 @@ function readFields_(ss,names=FIELD_TABLES,includeAgencies=true) {
 function saveField_(ss,command) {
   if(!['create','update'].includes(command.operation))throw new Error('Invalid save operation.');
   const spec=FIELD_SPEC[command.table];if(!FIELD_TABLES.includes(command.table)||!spec?.required)throw new Error('This table cannot be edited from the app.');
-  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table])],!!command.record?.Agency),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table])],!!command.record?.Agency,command.table!=='DOCTORS'),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
   if(command.links!==undefined)return saveLinks_(ss,command,data,today);
   const record=validateFieldRecord(command.table,command.record,data,today);
   const idKey=spec.headers[0],existing=data[command.table].filter(r=>r[idKey]===record[idKey]);
@@ -135,7 +138,7 @@ function saveLinks_(ss,command,data,today){
 // BEGIN GENERATED FIELD TRACKING
 // Shared with the Apps Script backend by scripts/build-field-backend.js.
 const FIELD_SPEC = {
-  DOCTORS: {headers:'Doctor_ID,Doctor_Name,Specialties,Hospital,Pharmacy_ID,Area,Camp,Potential,Prescriber_Status,Stockist,OP_Timing,Call_Schedule,Notes,Active'.split(',')},
+  DOCTORS: {headers:'Doctor_ID,Doctor_Name,Specialties,Hospital,Pharmacy_ID,Area,Camp,Potential,Prescriber_Status,Stockist,OP_Timing,Call_Schedule,Notes,Active'.split(','),required:['Doctor_Name','Pharmacy_ID','Area','Camp','Active'],options:{Potential:['A','B','C'],Prescriber_Status:['Rx','NRx'],Active:['YES','NO']}},
   PHARMACIES: {headers:'Pharmacy_ID,Pharmacy_Name,Area,Camp,Stockist,Identity_Status,Notes,Active'.split(',')},
   DOCTOR_PRODUCTS: {headers:'Link_ID,Doctor_ID,Product_SKU,Pharmacy_ID,Relationship,Start_Date,End_Date,Notes,Active'.split(','),required:['Doctor_ID','Product_SKU','Relationship','Active'],dates:['Start_Date','End_Date'],options:{Relationship:['EXISTING','DISCUSSION','OTHER'],Active:['YES','NO']}},
   RX_ACTIVITY: {headers:'Rx_ID,Prescription_Date,Reported_Date,Doctor_ID,Pharmacy_ID,Product_SKU,Quantity,Quantity_Unit,Confirmation,Notes,Created_At,Updated_At'.split(','),required:['Reported_Date','Doctor_ID','Product_SKU','Confirmation'],dates:['Prescription_Date','Reported_Date'],numbers:['Quantity'],options:{Confirmation:['REPORTED','CONFIRMED']}},
@@ -166,13 +169,19 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
   if(Object.keys(input).some(k=>!spec.headers.includes(k)))throw new Error('Unknown record field.');
   const record={};for(const h of spec.headers){const v=input[h]??'';if(!['string','number'].includes(typeof v)||String(v).length>2000)throw new Error('Invalid '+h);record[h]=typeof v==='string'?v.trim():v;}
   const present=v=>v!==''&&v!=null;
-  const id=record[spec.headers[0]];if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id))throw new Error('Invalid activity ID.');
+  const id=record[spec.headers[0]];if(typeof id!=='string'||!(table==='DOCTORS'&&data.DOCTORS?.some(d=>d.Doctor_ID===id))&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id))throw new Error('Invalid activity ID.');
   for(const h of spec.required)if(!present(record[h]))throw new Error(h.replaceAll('_',' ')+' is required.');
   for(const h of spec.dates||[]){const v=record[h];if(!v)continue;if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||isNaN(Date.parse(v+'T12:00:00Z'))||new Date(v+'T12:00:00Z').toISOString().slice(0,10)!==v)throw new Error('Invalid '+h);
     if(['Prescription_Date','Reported_Date','Booking_Date','Fulfilled_Date','Completed_Date'].includes(h)&&v>today)throw new Error(h.replaceAll('_',' ')+' cannot be in the future.');}
   for(const h of spec.numbers||[]){if(!present(record[h]))continue;if(!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(String(record[h]))||!Number.isFinite(Number(record[h]))||Number(record[h])<0)throw new Error(h.replaceAll('_',' ')+' must be a non-negative number.');record[h]=Number(record[h]);}
   for(const [h,choices] of Object.entries(spec.options||{}))if(present(record[h])&&!choices.includes(record[h]))throw new Error('Invalid '+h);
-  for(const [h,name,idKey] of [['Doctor_ID','DOCTORS','Doctor_ID'],['Pharmacy_ID','PHARMACIES','Pharmacy_ID']])if(record[h]&&!data[name]?.some(r=>r[idKey]===record[h]))throw new Error('Unknown '+h);
+  for(const [h,name,idKey] of [['Doctor_ID','DOCTORS','Doctor_ID'],['Pharmacy_ID','PHARMACIES','Pharmacy_ID']])if(!(table==='DOCTORS'&&h==='Doctor_ID')&&record[h]&&!data[name]?.some(r=>r[idKey]===record[h]))throw new Error('Unknown '+h);
+  if(table==='DOCTORS'){
+    const original=data.DOCTORS.find(d=>d.Doctor_ID===id);
+    if(original&&original.Pharmacy_ID!==record.Pharmacy_ID)throw new Error('The doctor’s linked pharmacy is fixed and cannot be changed.');
+    const identity=d=>[d.Doctor_Name,d.Hospital,d.Camp].map(value=>String(value||'').toLowerCase().replace(/\s+/g,' ').trim()).join('\u0000');
+    if((!original||identity(original)!==identity(record))&&data.DOCTORS.some(d=>d.Doctor_ID!==id&&identity(d)===identity(record)))throw new Error('A doctor with this name, hospital and camp already exists. Open that doctor to edit.');
+  }
   if(record.Doctor_ID&&['DOCTOR_PRODUCTS','POB_ACTIVITY','FOLLOW_UPS','RX_ACTIVITY'].includes(table)){
     const pharmacy=data.DOCTORS.find(d=>d.Doctor_ID===record.Doctor_ID)?.Pharmacy_ID;
     if(!pharmacy)throw new Error('This doctor has no linked pharmacy in the doctor master.');

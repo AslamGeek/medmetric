@@ -56,3 +56,9 @@ test('older browser snapshots and backend replies discard removed pharmacy-stock
  const session=createFieldSession(async()=>{reads++;return old;},()=>store);assert.equal('PHARMACY_STOCK_CHECKS' in (await session.load()),false);assert.equal(reads,0);assert.equal('PHARMACY_STOCK_CHECKS' in JSON.parse(store.getItem(FIELD_SNAPSHOT_KEY)),false);
  assert.equal('PHARMACY_STOCK_CHECKS' in (await session.load(true)),false);assert.equal(reads,1);
 });
+
+test('saved doctors are immediately cached across reloads without another sheet read',async()=>{
+ const store=storage(),session=createFieldSession(async()=>snapshot(),()=>store);await session.load();const record=Object.fromEntries(FIELD_SPEC.DOCTORS.headers.map(h=>[h,h==='Doctor_ID'?'new-doctor':h==='Doctor_Name'?'Created doctor':'']));
+ session.saved('DOCTORS',record);session.saved('DOCTORS',{...record,Doctor_Name:'Edited doctor'});
+ const cached=await createFieldSession(async()=>{throw Error('Unexpected read');},()=>store).load();assert.equal(cached.DOCTORS.length,2);assert.equal(cached.DOCTORS.find(d=>d.Doctor_ID==='new-doctor').Doctor_Name,'Edited doctor');
+});
