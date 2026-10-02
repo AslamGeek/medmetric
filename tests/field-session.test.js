@@ -34,3 +34,19 @@ test('all acknowledged product links persist together after reload',async()=>{
  session.saved('DOCTOR_PRODUCTS',rows);session.saved('DOCTOR_PRODUCTS',rows);
  assert.equal((await createFieldSession(async()=>{throw Error('Unexpected read');},()=>store).load()).DOCTOR_PRODUCTS.length,2);
 });
+
+test('refresh removes a deleted product link even when another entry saves during the read',async()=>{
+ const store=storage(),initial=snapshot();initial.DOCTOR_PRODUCTS=[Object.fromEntries(FIELD_SPEC.DOCTOR_PRODUCTS.headers.map(h=>[h,h==='Link_ID'?'deleted-link':'' ]))];store.setItem(FIELD_SNAPSHOT_KEY,JSON.stringify(initial));
+ let release;const session=createFieldSession(()=>new Promise(resolve=>{release=resolve;}),()=>store);session.restore();const refresh=session.load(true);await Promise.resolve();session.saved('RX_ACTIVITY',entry());release(snapshot());
+ const result=await refresh;assert.equal(result.DOCTOR_PRODUCTS.length,0);assert.equal(result.RX_ACTIVITY.length,1);assert.equal(JSON.parse(store.getItem(FIELD_SNAPSHOT_KEY)).DOCTOR_PRODUCTS.length,0);
+});
+test('explicit refresh waits for an older read then fetches again to remove deleted links',async()=>{
+ let release,reads=0;const initial=snapshot();initial.DOCTOR_PRODUCTS=[Object.fromEntries(FIELD_SPEC.DOCTOR_PRODUCTS.headers.map(h=>[h,h==='Link_ID'?'deleted-link':'' ]))];
+ const session=createFieldSession(()=>++reads===1?new Promise(resolve=>{release=resolve;}):snapshot());const old=session.load();await Promise.resolve();const refresh=session.load(true);release(initial);await old;assert.equal((await refresh).DOCTOR_PRODUCTS.length,0);assert.equal(reads,2);
+});
+
+test('tracking loads and restores after the retired sheet tabs are removed',async()=>{
+ const current=snapshot();delete current.RX_ACTIVITY;delete current.FOLLOW_UPS;delete current.TARGETS;const store=storage();
+ await createFieldSession(async()=>current,()=>store).load(true);
+ const result=await createFieldSession(async()=>{throw Error('Unexpected read');},()=>store).load();assert.equal(result.DOCTORS.length,1);assert.equal('FOLLOW_UPS' in result,false);
+});

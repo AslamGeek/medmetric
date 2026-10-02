@@ -27,7 +27,7 @@ function doPost(e) {
       cache.put(key,'used',120);
     } finally { lock.releaseLock(); }
     const ss=SpreadsheetApp.openById(SOURCE_ID);
-    if(command.action==='field_read')return reply_({ok:true,data:readFields_(ss)});
+    if(command.action==='field_read'){const data=readFields_(ss);removeRetiredTabs_(ss);return reply_({ok:true,data});}
     if(command.action==='field_save'){
       const writeLock=LockService.getScriptLock();
       if(!writeLock.tryLock(10000))return reply_({ok:false,error:'Another save is in progress. Retry with your entry unchanged.'});
@@ -45,7 +45,20 @@ function doPost(e) {
     return reply_({ok:true,valueRanges});
   } catch(error) { return reply_({ok:false,error:'Unable to read source spreadsheet'}); }
 }
-function readFields_(ss,names=Object.keys(FIELD_SPEC),includeAgencies=true) {
+// User-requested cleanup runs only after the current tables have been read successfully.
+// Old deployments keep working until this updated deployment is activated.
+function removeRetiredTabs_(ss){
+  const cache=CacheService.getScriptCache();if(cache.get('retired-tabs-cleaned-v1'))return;
+  const lock=LockService.getScriptLock();if(!lock.tryLock(10000))throw new Error('Another save is in progress. Retry refresh.');
+  try{
+    for(const [name,id] of [['RX_ACTIVITY',610020103],['FOLLOW_UPS',610020105],['TARGETS',610020106]]){
+      const sheet=ss.getSheetByName(name);
+      if(sheet&&sheet.getSheetId()===id)ss.deleteSheet(sheet);
+    }
+    cache.put('retired-tabs-cleaned-v1','done',21600);
+  }finally{lock.releaseLock();}
+}
+function readFields_(ss,names=FIELD_TABLES,includeAgencies=true) {
   const data={};
   for(const name of names){
     const sheet=ss.getSheetByName(name);if(!sheet)throw new Error('Missing '+name+' tab.');
@@ -64,7 +77,7 @@ function readFields_(ss,names=Object.keys(FIELD_SPEC),includeAgencies=true) {
 }
 function saveField_(ss,command) {
   if(!['create','update'].includes(command.operation))throw new Error('Invalid save operation.');
-  const spec=FIELD_SPEC[command.table];if(!spec?.required)throw new Error('This table cannot be edited from the app.');
+  const spec=FIELD_SPEC[command.table];if(!FIELD_TABLES.includes(command.table)||!spec?.required)throw new Error('This table cannot be edited from the app.');
   const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table])],!!command.record?.Agency),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
   if(command.links!==undefined)return saveLinks_(ss,command,data,today);
   const record=validateFieldRecord(command.table,command.record,data,today);
@@ -131,6 +144,7 @@ const FIELD_SPEC = {
   TARGETS: {headers:'Target_ID,Month,Scope,Agency,Doctor_ID,Pharmacy_ID,Product_SKU,Metric,Target_Value,Quantity_Unit,Notes,Active'.split(','),required:['Month','Scope','Metric','Target_Value','Active'],numbers:['Target_Value'],options:{Scope:['OVERALL','AGENCY','DOCTOR','PHARMACY'],Metric:['SECONDARY_REVENUE','RX_UNITS','POB_UNITS'],Active:['YES','NO']}},
   POB_ACTIVITY: {headers:'POB_ID,Booking_Date,Doctor_ID,Pharmacy_ID,Agency,Product_SKU,Booked_Units,Quantity_Unit,Status,Fulfilled_Units,Fulfilled_Date,Notes,Created_At,Updated_At'.split(','),required:['Booking_Date','Pharmacy_ID','Product_SKU','Booked_Units','Quantity_Unit','Status'],dates:['Booking_Date','Fulfilled_Date'],numbers:['Booked_Units','Fulfilled_Units'],options:{Status:['BOOKED','PARTIAL','FULFILLED','CANCELLED']}}
 };
+const FIELD_TABLES=['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','PHARMACY_STOCK_CHECKS','POB_ACTIVITY'];
 const QUANTITY_UNITS=['STOCK_UNIT','TABLET','STRIP','BOTTLE','SACHET','AMPOULE','VIAL','TUBE','PACK','OTHER'];
 function indiaToday(now=new Date()) {return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);}
 function fieldRecords(values,headers,name) {
@@ -160,6 +174,12 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
   for(const h of spec.numbers||[]){if(!present(record[h]))continue;if(!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(String(record[h]))||!Number.isFinite(Number(record[h]))||Number(record[h])<0)throw new Error(h.replaceAll('_',' ')+' must be a non-negative number.');record[h]=Number(record[h]);}
   for(const [h,choices] of Object.entries(spec.options||{}))if(present(record[h])&&!choices.includes(record[h]))throw new Error('Invalid '+h);
   for(const [h,name,idKey] of [['Doctor_ID','DOCTORS','Doctor_ID'],['Pharmacy_ID','PHARMACIES','Pharmacy_ID']])if(record[h]&&!data[name]?.some(r=>r[idKey]===record[h]))throw new Error('Unknown '+h);
+  if(record.Doctor_ID&&['DOCTOR_PRODUCTS','POB_ACTIVITY','FOLLOW_UPS','RX_ACTIVITY'].includes(table)){
+    const pharmacy=data.DOCTORS.find(d=>d.Doctor_ID===record.Doctor_ID)?.Pharmacy_ID;
+    if(!pharmacy)throw new Error('This doctor has no linked pharmacy in the doctor master.');
+    if(record.Pharmacy_ID&&record.Pharmacy_ID!==pharmacy)throw new Error('Use the doctor’s fixed linked pharmacy.');
+    record.Pharmacy_ID=pharmacy;
+  }
   if(record.Product_SKU&&!data.products?.some(p=>p.Product_SKU===record.Product_SKU))throw new Error('Choose an existing product SKU.');
   if(record.Agency&&!data.agencies?.includes(record.Agency))throw new Error('Unknown agency.');
   if(record.Quantity_Unit&&!QUANTITY_UNITS.includes(record.Quantity_Unit))throw new Error('Invalid quantity unit.');

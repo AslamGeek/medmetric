@@ -63,25 +63,25 @@ function backendFixture(){
  tables.PRODUCT_CONFIG=[['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'],['SYP','Product syrup','ACTIVE','YES'],['DROPS','Product drops','ACTIVE','YES']];
  tables.MONTHLY_TOTALS=[['','','','','','','Agency'],['','','','','','','AGENCY']];
  const calls={reads:[],writes:0};
- const sheet=name=>({getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>{calls.reads.push(name);return Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));},setValues:values=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})});
+ const sheet=name=>tables[name]?({getSheetId:()=>({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106}[name]||1),getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getRange:(row,col,count,width)=>({getValues:()=>{calls.reads.push(name);return Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));},setValues:values=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}}})}):null;
  const secret='synthetic-field-secret-12345678901234567890',cache=new Map();
- const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet}),flush:()=>{}}});
+ const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet,deleteSheet:sheet=>{for(const name of ['RX_ACTIVITY','FOLLOW_UPS','TARGETS'])if(tables[name]&&({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106}[name]===sheet.getSheetId()))delete tables[name];}}),flush:()=>{}}});
  vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
  function call(command){const payload=JSON.stringify({...command,timestamp:Date.now(),nonce:randomUUID()});return context.doPost({postData:{contents:JSON.stringify({payload,signature:createHmac('sha256',secret).update(payload).digest('hex')})}});}
  return {tables,call,calls};
 }
 test('signed backend saves once, retries idempotently and leaves pharmacy stock and revenue untouched',()=>{
- const f=backendFixture(),before=JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),r=rx();const first=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:r});assert.equal(first.ok,true,first.error);const again=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:r});assert.equal(again.alreadySaved,true);assert.equal(f.tables.RX_ACTIVITY.length,2);assert.equal(JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),before);
- const read=f.call({action:'field_read'});assert.equal(read.ok,true,read.error);assert.equal(read.data.RX_ACTIVITY[0].Doctor_ID,'D1');assert.equal(read.data.products.length,2);
+ const f=backendFixture(),before=JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),r=({POB_ID:randomUUID(),Booking_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Booked_Units:10,Quantity_Unit:'BOTTLE',Status:'BOOKED'});const first=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(first.ok,true,first.error);const again=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(again.alreadySaved,true);assert.equal(f.tables.POB_ACTIVITY.length,2);assert.equal(JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),before);
+ const read=f.call({action:'field_read'});assert.equal(read.ok,true,read.error);assert.equal(read.data.POB_ACTIVITY[0].Doctor_ID,'D1');assert.equal(read.data.products.length,2);assert.equal('RX_ACTIVITY' in f.tables,false);assert.equal('FOLLOW_UPS' in f.tables,false);assert.equal('TARGETS' in f.tables,false);assert.equal('DOCTOR_PRODUCTS' in f.tables,true);assert.equal('MONTHLY_TOTALS' in f.tables,true);
 });
 test('signed backend rejects master/financial edits and saves notes as literal text',()=>{
  const f=backendFixture();assert.equal(f.call({action:'field_save',table:'MONTHLY_TOTALS',operation:'create',record:{}}).ok,false);
- const result=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:{...rx(),Notes:'=1+1'}});assert.equal(result.ok,true,result.error);assert.equal(f.tables.RX_ACTIVITY[1][9],"'=1+1");
+ const result=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:{...({POB_ID:randomUUID(),Booking_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Booked_Units:10,Quantity_Unit:'BOTTLE',Status:'BOOKED'}),Notes:'=1+1'}});assert.equal(result.ok,true,result.error);assert.equal(f.tables.POB_ACTIVITY[1][11],"'=1+1");
 });
 test('a stale edit cannot overwrite another saved edit',()=>{
- const f=backendFixture(),r=rx(),created=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'create',record:r}).record;
- const changed=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'update',record:{...created,Notes:'New information'},previous:created});assert.equal(changed.ok,true,changed.error);
- const stale=f.call({action:'field_save',table:'RX_ACTIVITY',operation:'update',record:{...created,Notes:'Outdated information'},previous:created});assert.equal(stale.ok,false);assert.match(stale.error,/changed since/);assert.equal(f.tables.RX_ACTIVITY[1][9],'New information');
+ const f=backendFixture(),r=({POB_ID:randomUUID(),Booking_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Booked_Units:10,Quantity_Unit:'BOTTLE',Status:'BOOKED'}),created=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r}).record;
+ const changed=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'update',record:{...created,Notes:'New information'},previous:created});assert.equal(changed.ok,true,changed.error);
+ const stale=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'update',record:{...created,Notes:'Outdated information'},previous:created});assert.equal(stale.ok,false);assert.match(stale.error,/changed since/);assert.equal(f.tables.POB_ACTIVITY[1][11],'New information');
 });
 test('Apps Script uses exactly the shared validation code',()=>{
  const shared=fs.readFileSync(new URL('../lib/field-tracking.js',import.meta.url),'utf8').replace(/^export /gm,'');const backend=fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8');assert.ok(backend.includes(shared));
@@ -94,4 +94,15 @@ test('doctor products batch validates before writing and safely retries every se
  f.calls.reads=[];const first=f.call(command);assert.equal(first.ok,true,first.error);assert.equal(f.calls.writes,1);assert.deepEqual(f.calls.reads,['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','PRODUCT_CONFIG']);assert.equal(first.records.length,2);assert.equal(f.tables.DOCTOR_PRODUCTS.length,3);
  const retry=f.call(command);assert.equal(retry.alreadySaved,true);assert.equal(f.tables.DOCTOR_PRODUCTS.length,3);
  const duplicate=f.call({...command,links:[links[0],{...links[1],Product_SKU:'SYP'}]});assert.equal(duplicate.ok,false);
+});
+
+test('doctor product links cannot use a pharmacy other than the doctor master',()=>{
+ const d=source();d.PHARMACIES.push({Pharmacy_ID:'P2'});
+ const record={Link_ID:randomUUID(),Doctor_ID:'D1',Pharmacy_ID:'P2',Product_SKU:'SYP',Relationship:'EXISTING',Active:'YES'};
+ assert.throws(()=>validateFieldRecord('DOCTOR_PRODUCTS',record,d),/linked pharmacy/);
+});
+
+test('an explicit field refresh bypasses a previously started shared server read',async()=>{
+ let reads=0,release;const loader=shareFieldReads(command=>{reads++;return command.force?Promise.resolve({ok:true,data:{DOCTOR_PRODUCTS:[]}}):new Promise(resolve=>{release=resolve;});});
+ const old=loader({action:'field_read'});await Promise.resolve();const fresh=await loader({action:'field_read',force:true});assert.equal(reads,2);assert.equal(fresh.data.DOCTOR_PRODUCTS.length,0);release({ok:true});await old;
 });
