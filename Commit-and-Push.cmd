@@ -39,6 +39,7 @@ $appFiles = @(
     'lib/analytics.js',
     'lib/chart-scales.js',
     'lib/product-rankings.js',
+    'lib/product-explorer.js',
     'lib/report-filters.js',
     'lib/api.js',
     'lib/sheets.js',
@@ -50,6 +51,7 @@ $appFiles = @(
     'tests/product-detail.test.js',
     'tests/chart-scales.test.js',
     'tests/product-rankings.test.js',
+    'tests/product-explorer.test.js',
     'tests/report-filters.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
