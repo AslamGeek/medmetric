@@ -1,0 +1,137 @@
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const state = {data:null,charts:{},request:0,drillRequest:0,drill:null};
+const colors = ['#315fcb','#239d98','#8b79b9','#b99a64','#7196b6'];
+const exact = (v,currency=false) => v==null?'—':(currency?'₹':'')+Number(v).toLocaleString('en-IN',{maximumFractionDigits:2});
+const compact = (v,currency=false) => {
+  if(v==null)return '—'; const abs=Math.abs(v),sign=v<0?'−':'',prefix=currency?'₹':'';
+  const [div,suffix]=abs>=1e7?[1e7,'Cr']:abs>=1e5?[1e5,'L']:abs>=1e3?[1e3,'K']:[1,''];
+  return sign+prefix+(abs/div).toLocaleString('en-IN',{maximumFractionDigits:div===1?2:2})+suffix;
+};
+const monthLabel=m=>m?new Date(m+'-01T12:00:00Z').toLocaleDateString('en-IN',{month:'short',year:'numeric',timeZone:'UTC'}):'—';
+function node(tag,text,className){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(className)e.className=className;return e;}
+function setOptions(id,options,value,all){const el=$(id);el.replaceChildren();if(all)el.add(new Option(all,''));options.forEach(o=>el.add(new Option(o.label,o.value)));el.value=value||'';}
+function getFilters(){return {start:$('start').value,end:$('end').value,agency:$('agency').value,brand:$('brand').value,product:$('product').value,trendProduct:$('trendProduct').value,includeExcluded:$('includeExcluded').checked,maxUnits:$('maxUnits').value===''?0:Number($('maxUnits').value),minAge:$('minAge').value===''?null:Number($('minAge').value)};}
+function rpc(name,...args){return new Promise((resolve,reject)=>{
+  if(!window.google?.script?.run){reject(new Error('Open the deployed Google Apps Script web app to connect to your sheet. This local file does not have a live data connection.'));return;}
+  google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[name](...args);
+});}
+function busy(value){$('dashboard').setAttribute('aria-busy',String(value));document.querySelectorAll('.filters input,.filters select,.filters button,#refresh,#trendProduct,#threshold-apply,#maxUnits,#minAge').forEach(el=>el.disabled=value);}
+function message(text,error=false){$('message').textContent=text;$('message').hidden=!text;$('message').classList.toggle('error',error);}
+async function load(refresh=false,initial=false){
+  const seq=++state.request;busy(true);message(initial?'Reading your agency statements and product mappings…':'Updating your view…');
+  try{
+    const data=await rpc('getDashboardData',initial?{refresh}:{...getFilters(),refresh});
+    if(seq!==state.request)return;state.data=data;render(data);message('');
+  }catch(e){if(seq!==state.request)return;message((e?.message||String(e))+(state.data?' Previously loaded results remain below.':''),true);}
+  finally{if(seq===state.request){busy(false);if(state.data)$('trendProduct').disabled=!!state.data.filters.product;}}
+}
+function table(target,columns,rows,empty='No data available'){
+  const container=$(target);container.replaceChildren();if(!rows.length){container.append(node('p',empty,'muted'));return;}
+  const t=node('table'),head=node('thead'),tr=node('tr');columns.forEach(c=>{const th=node('th',c.label);th.scope='col';tr.append(th);});head.append(tr);t.append(head);const body=node('tbody');
+  rows.forEach(r=>{const row=node('tr');columns.forEach(c=>{const td=node('td',null,c.numeric?'num':'');const value=c.render?c.render(r):r[c.key];if(value instanceof Node)td.append(value);else td.textContent=value==null?'—':String(value);row.append(td);});body.append(row);});t.append(body);container.append(t);
+}
+function linkButton(label,action){const b=node('button',label);b.type='button';b.addEventListener('click',action);return b;}
+function draw(id,type,labels,datasets,opts={}){
+  state.charts[id]?.destroy();delete state.charts[id];
+  const canvas=$(id),empty=canvas.parentElement.querySelector('.empty');
+  const available=datasets.some(d=>d.data.some(v=>v!=null));
+  canvas.hidden=!available;empty.hidden=available;
+  if(!available)return;
+  if(!window.Chart){canvas.hidden=true;empty.hidden=false;empty.textContent='Chart library could not load. Exact values are available below.';return;}
+  empty.textContent='No data available';
+  const horizontal=opts.horizontal,unit=opts.currency?'₹':'units';
+  const chartDatasets=datasets.map((d,i)=>({borderColor:colors[i%colors.length],backgroundColor:type==='line'?colors[i%colors.length]+'14':colors[i%colors.length],borderWidth:type==='line'?2:0,pointRadius:3,pointHoverRadius:5,pointBackgroundColor:'#fff',pointBorderWidth:2,tension:.28,fill:false,borderRadius:4,maxBarThickness:horizontal?17:24,spanGaps:false,...d}));
+  state.charts[id]=new Chart(canvas,{type,data:{labels,datasets:chartDatasets},options:{responsive:true,maintainAspectRatio:false,indexAxis:horizontal?'y':'x',animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches?false:{duration:220},interaction:{mode:horizontal?'nearest':'index',intersect:false},plugins:{legend:{display:datasets.length>1,position:'bottom',align:'start',labels:{usePointStyle:true,pointStyle:'circle',boxWidth:6,boxHeight:6,padding:19,color:'#687586',font:{size:10}}},tooltip:{backgroundColor:'#233347',padding:12,callbacks:{label:ctx=>ctx.dataset.label+': '+exact(ctx.raw,opts.currency)+(opts.currency?'':' units'),afterBody:opts.tooltip||(()=>[])}}},scales:{x:{grid:{display:!!horizontal,color:'#edf0f4'},border:{display:false},ticks:{color:'#8994a3',font:{size:9},maxRotation:0,callback:horizontal?(v=>compact(v,opts.currency)):undefined},beginAtZero:!!horizontal},y:{grid:{display:!horizontal,color:'#edf0f4'},border:{display:false},ticks:{color:'#687586',font:{size:horizontal?10:9},callback:horizontal?undefined:(v=>compact(v,opts.currency))},beginAtZero:!horizontal}},onClick:opts.click?((event,elements)=>{if(elements.length)opts.click(elements[0].index,elements[0].datasetIndex);}):undefined}});
+}
+// Extend this registry with a server-provided dataset and a renderer for new charts.
+// No natural-language text is evaluated or passed to executable code.
+const chartRegistry={
+  primarySecondaryTrend:{render(d){
+    const t=d.trend;draw('financialChart','line',t.months.map(monthLabel),[{label:'Primary sales',data:t.financial.map(r=>r.primary)},{label:'Secondary sales',data:t.financial.map(r=>r.secondary)}],{currency:true,tooltip:items=>t.financial[items[0]?.dataIndex]?.partial?['Partial or missing agency coverage']:[],click:i=>openDrill({kind:'financial',month:t.months[i]})});
+    table('financial-values',[{label:'Month',render:r=>linkButton(monthLabel(r.month),()=>openDrill({kind:'financial',month:r.month}))},{label:'Primary ₹',numeric:true,render:r=>exact(r.primary,true)},{label:'Secondary ₹',numeric:true,render:r=>exact(r.secondary,true)},{label:'Coverage',render:r=>r.partial?'Partial / incomplete':'Full'}],t.financial);
+  }},
+  secondaryByAgency:{render(d){
+    const t=d.trend;draw('agencyChart','bar',t.months.map(monthLabel),t.agency.map((s,i)=>({label:s.name,data:s.values,backgroundColor:colors[i%colors.length]})),{currency:true,click:i=>openDrill({kind:'financial',month:t.months[i]})});
+    table('agency-values',[{label:'Month',key:'month'},...t.agency.map((s,i)=>({label:s.name+' ₹',numeric:true,render:r=>exact(r.values[i],true)}))],t.months.map((m,i)=>({month:monthLabel(m),values:t.agency.map(s=>s.values[i])})));
+  }},
+  topProducts:{render(d){
+    const rows=d.topProducts;draw('topChart','bar',rows.map(r=>r.name),[{label:'Units sold',data:rows.map(r=>r.units),backgroundColor:'#6385d8'}],{horizontal:true,tooltip:items=>{const r=rows[items[0]?.dataIndex];return r?Object.entries(r.agencies).map(([name,v])=>name+': '+exact(v)+' units'):[];},click:i=>openDrill({productKey:rows[i].key})});
+    table('top-values',[{label:'Product',render:r=>linkButton(r.name,()=>openDrill({productKey:r.key}))},{label:'SKU',key:'sku'},{label:'Units sold',numeric:true,render:r=>exact(r.units)}],rows);
+  }},
+  productTrend:{render(d){
+    const t=d.trend;draw('productChart','line',t.months.map(monthLabel),t.product.map(s=>({label:s.name,data:s.values})),{click:i=>openDrill({productKey:t.productKey,month:t.months[i]})});
+    table('product-values',[{label:'Month',render:r=>linkButton(monthLabel(r.month),()=>openDrill({productKey:t.productKey,month:r.month}))},...t.product.map((s,i)=>({label:s.name+' units',numeric:true,render:r=>exact(r.values[i])}))],t.months.map((m,i)=>({month:m,values:t.product.map(s=>s.values[i])})));
+  }},
+  closingInventory:{render(d){
+    const rows=d.inventory;draw('stockChart','bar',rows.map(r=>r.name),[{label:'Closing stock',data:rows.map(r=>r.value),backgroundColor:'#67ada9'}],{horizontal:true,currency:true,click:i=>openDrill({productKey:rows[i].key,month:d.filters.end})});
+    table('stock-values',[{label:'Product',render:r=>linkButton(r.name,()=>openDrill({productKey:r.key,month:d.filters.end}))},{label:'QOH',numeric:true,render:r=>exact(r.qoh)},{label:'Closing stock ₹',numeric:true,render:r=>exact(r.value,true)}],rows);
+  }}
+};
+function render(d){
+  const f=d.filters,o=d.options;
+  ['start','end'].forEach(id=>setOptions(id,o.months.map(m=>({value:m,label:monthLabel(m)})),f[id]));
+  setOptions('agency',o.agencies.map(a=>({value:a,label:a})),f.agency,'All agencies');
+  setOptions('brand',o.brands.map(a=>({value:a,label:a})),f.brand,'All brands');
+  const products=o.products.map(p=>({value:p.key,label:p.name+(p.sku?' · '+p.sku:'')}));
+  setOptions('product',products,f.product,'All products');setOptions('trendProduct',products,f.product||f.trendProduct);
+  $('includeExcluded').checked=f.includeExcluded;$('maxUnits').value=f.maxUnits;$('minAge').value=f.minAge==null?'':f.minAge;
+  $('freshness').textContent='Loaded '+new Date(d.loadedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  $('period-label').textContent=(f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end))+' · '+(f.agency||'All agencies');
+  for(const key of ['primary','secondary','closing']){$(key).textContent=compact(d.kpis[key],true);$(key).title=exact(d.kpis[key],true);$(key).setAttribute('aria-label',exact(d.kpis[key],true));}
+  $('closing-note').textContent=monthLabel(f.end)+' closing balance';
+  const c=d.kpis.comparison;$('growth').textContent=c.value==null?'—':(c.value>0?'+':'')+c.value.toFixed(1)+'%';$('growth').className=c.value==null?'':c.value<0?'negative':'positive';$('growth-note').textContent=c.value==null?c.reason:'vs '+monthLabel(c.previousMonth)+' · comparable agencies';$('growth').title=c.reason;
+  document.querySelectorAll('.trend-caption').forEach(el=>el.textContent=(f.start===f.end?'Up to 12 months through selection':'Selected monthly range')+' · ₹');
+  $('product-count').textContent=o.products.length+' available products · '+(f.includeExcluded?'all inclusion flags':'Include_In_Charts = YES');
+  $('inventory-month').textContent='Snapshot · '+monthLabel(f.end);
+  $('warnings').replaceChildren(...d.warnings.map(w=>node('p',w)));$('warnings').hidden=!d.warnings.length;
+  Object.values(chartRegistry).forEach(def=>def.render(d));
+  $('insights').replaceChildren(...(d.insights.length?d.insights:['No data available for the selected filters.']).map(s=>node('li',s)));
+  $('candidate-count').textContent=d.candidateCount;
+  table('candidate-table',[{label:'Product / Agency',render:r=>{const e=node('div');e.append(linkButton(r.productName,()=>openDrill({productKey:r.productKey,month:f.end})),node('div',r.agency,'muted'));return e;}},{label:'QOH',numeric:true,render:r=>exact(r.qoh)},{label:'Units',numeric:true,render:r=>exact(r.units)},{label:'Age',numeric:true,render:r=>exact(r.age)},{label:'Closing ₹',numeric:true,render:r=>exact(r.value,true)}],d.candidates,'No candidates match these thresholds.');
+  $('view-candidates').textContent=d.candidateCount>25?'Showing 25 of '+d.candidateCount+' · Explore all source rows →':'Explore candidate source rows →';
+  const q=d.diagnostics,diag=node('div',null,'diagnostic-grid');
+  [['Latest statement month',monthLabel(q.latestMonth)],['Agencies loaded',q.agencies.join(', ')||'—'],['Raw product names · all data',q.rawNames],['Normalized SKUs · all data',q.skus],['Unmapped names · selected scope',q.unmappedRawCount],['Rows excluded: NO · scope',q.excludedNo],['Other non-YES rows · scope',q.excludedOther],['Raw observations · all data',q.rawRows]].forEach(([label,value])=>{const e=node('div');e.append(node('p',label),node('strong',value));diag.append(e);});
+  $('diagnostic-values').replaceChildren(diag,node('p','Selected scope = month range + agency, before brand/product/inclusion filters. Mapping config is cached per user for up to 5 minutes; Refresh data reloads it. Financial and product inventory values are separate source measures.','scope-note'));
+  table('unmapped-table',[{label:'Raw name',key:'rawName'},{label:'Agency',key:'agency'},{label:'Mapping issue',key:'issue'}],q.unmapped,'All raw names in this scope have an exact, unambiguous mapping.');
+}
+async function openDrill(request){
+  if(!state.data)return;
+  state.drill={...request,offset:request.offset||0};
+  const seq=++state.drillRequest,dialog=$('drilldown');if(!dialog.open)dialog.showModal();
+  $('drill-status').textContent='Reading source rows…';$('drill-table').replaceChildren();$('previous-page').disabled=true;$('next-page').disabled=true;
+  const f=state.data.filters;
+  try{
+    const result=await rpc('getDrilldown',f,state.drill);if(seq!==state.drillRequest)return;
+    const financial=result.kind==='financial';$('drill-title').textContent=financial?'Financial statements':'Product source rows';
+    const source=r=>{if(/^https:\/\//i.test(r.source)){const a=node('a','Open source PDF');a.href=r.source;a.target='_blank';a.rel='noopener noreferrer';return a;}return r.source||'—';};
+    const rowLink=r=>{const a=node('a',String(r.sheetRow));a.href='https://docs.google.com/spreadsheets/d/1dYodW1QJQBAXvFQph-zhA_iVIjmt_YFUFlbnuZhpluE/edit#gid='+(financial?'269896520':'2004808600')+'&range=A'+r.sheetRow+':'+(financial?'N':'S')+r.sheetRow;a.target='_blank';a.rel='noopener noreferrer';return a;};
+    const columns=financial?[{label:'Statement',key:'statementId'},{label:'Agency',key:'agency'},{label:'Month',key:'month'},...['primary','secondary','closing'].map(k=>({label:k[0].toUpperCase()+k.slice(1)+' ₹',numeric:true,render:r=>exact(r[k],true)})),{label:'Coverage',key:'coverage'}]:[{label:'Canonical product',key:'productName'},{label:'SKU',key:'sku'},{label:'Raw product name',key:'rawName'},{label:'Agency',key:'agency'},{label:'Month',key:'month'},{label:'Sale units',numeric:true,render:r=>exact(r.units)},{label:'QOH',numeric:true,render:r=>exact(r.qoh)},{label:'Closing value ₹',numeric:true,render:r=>exact(r.value,true)},{label:'Age observation',numeric:true,render:r=>exact(r.age)},{label:'Status',key:'status'},{label:'Included by config',render:r=>r.include?'YES':r.mapped?'NO / unset':'Unmapped'}];
+    columns.push({label:'Source PDF',render:source},{label:'Sheet row',render:rowLink});if(!financial)columns.push({label:'Source line',key:'sourceLine'});
+    table('drill-table',columns,result.rows);$('drill-status').textContent='Original source names preserved. '+(financial?'Financial statement values.':'Sale is units; Value is closing inventory value.');
+    $('page-info').textContent=result.total?(result.offset+1)+'–'+Math.min(result.offset+result.limit,result.total)+' of '+result.total:'0 rows';
+    $('previous-page').disabled=result.offset===0;$('next-page').disabled=result.offset+result.limit>=result.total;
+  }catch(e){if(seq===state.drillRequest)$('drill-status').textContent=e?.message||String(e);}
+}
+function init(){
+  ['start','end','agency','brand','product','includeExcluded'].forEach(id=>$(id).addEventListener('change',()=>{
+    if(id==='start'&&$('start').value>$('end').value)$('end').value=$('start').value;
+    if(id==='end'&&$('end').value<$('start').value)$('start').value=$('end').value;
+    if(['start','end','agency','brand','includeExcluded'].includes(id)){$('product').value='';$('trendProduct').value='';}
+    if(id==='agency')$('brand').value='';
+    load();
+  }));
+  $('refresh').addEventListener('click',()=>load(true,!state.data));
+  $('reset').addEventListener('click',()=>load(false,true));
+  $('trendProduct').addEventListener('change',()=>load());
+  $('threshold-apply').addEventListener('click',()=>load());
+  $('source-rows').addEventListener('click',()=>openDrill({}));$('financial-rows').addEventListener('click',()=>openDrill({kind:'financial'}));$('view-candidates').addEventListener('click',()=>openDrill({kind:'candidates'}));
+  $('previous-page').addEventListener('click',()=>openDrill({...state.drill,offset:Math.max(0,state.drill.offset-50)}));$('next-page').addEventListener('click',()=>openDrill({...state.drill,offset:state.drill.offset+50}));
+  $('close-dialog').addEventListener('click',()=>$('drilldown').close());$('drilldown').addEventListener('close',()=>{state.drillRequest++;});
+  $('explore').addEventListener('click',()=>{$('products').scrollIntoView({behavior:'smooth'});$('trendProduct').focus({preventScroll:true});});
+  document.querySelectorAll('.topbar nav a').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('.topbar nav a').forEach(b=>b.classList.toggle('active',a===b));}));
+  load(false,true);
+}
+window.addEventListener('DOMContentLoaded',init);
+</script>

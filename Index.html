@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Renova Sales Intelligence</title>
+  <?!= include_('Styles'); ?>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="identity" href="#overview" aria-label="Renova overview"><span class="mark" aria-hidden="true">r<span>•</span></span><span>RENOVA<span class="identity-sub">SALES INTELLIGENCE</span></span></a>
+    <nav aria-label="Dashboard sections"><a href="#overview" class="active">Overview</a><a href="#products">Products</a><a href="#inventory">Inventory</a></nav>
+    <span class="readonly"><span></span> Read-only workspace</span>
+  </header>
+  <main id="overview">
+    <div class="page-heading"><div><p class="eyebrow">A CLEARER VIEW OF YOUR BUSINESS</p><h1>Renova Sales Intelligence</h1><p class="subtitle">Agency Stock &amp; Sales Analytics</p></div><div class="heading-actions"><span id="freshness" class="muted">Connecting to your sheet</span><button id="refresh" type="button" class="button">↻ &nbsp; Refresh data</button></div></div>
+    <section class="filters" aria-label="Dashboard filters">
+      <label>From month<select id="start" aria-label="From month"></select></label>
+      <label>To month<select id="end" aria-label="To month"></select></label>
+      <label>Agency<select id="agency"><option value="">All agencies</option></select></label>
+      <label>Brand group<select id="brand"><option value="">All brands</option></select></label>
+      <label class="product-filter">Product<select id="product"><option value="">All products</option></select></label>
+      <label class="check"><input id="includeExcluded" type="checkbox"><span>Include excluded<br>&amp; unmapped</span></label>
+      <button type="button" id="reset" class="text-button">Reset</button>
+    </section>
+    <p class="scope-note">Financial totals use month and agency filters. Brand, product and inclusion filters apply to product analytics only.</p>
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <div id="warnings" class="warnings" hidden></div>
+    <div id="dashboard" aria-busy="true">
+      <div class="section-heading"><h2>Performance at a glance</h2><span id="period-label" class="period-label">—</span></div>
+      <section class="kpi-grid" aria-label="Financial performance">
+        <article class="kpi"><p>Primary sales <span>₹</span></p><strong id="primary">—</strong><small>Purchases by your agencies</small><span class="kpi-line primary-line"></span></article>
+        <article class="kpi"><p>Secondary sales <span>₹</span></p><strong id="secondary">—</strong><small>Sales from your agencies</small><span class="kpi-line secondary-line"></span></article>
+        <article class="kpi"><p>Closing stock <span>₹</span></p><strong id="closing">—</strong><small id="closing-note">End-month inventory balance</small><span class="kpi-line neutral-line"></span></article>
+        <article class="kpi"><p>Secondary growth <span>↗</span></p><strong id="growth">—</strong><small id="growth-note">Versus previous month</small><span class="kpi-line neutral-line"></span></article>
+      </section>
+      <div class="chart-grid financial-grid">
+        <article class="panel"><div class="panel-header"><div><h2>Primary vs secondary</h2><p class="trend-caption">Monthly financial trend · ₹</p></div><span class="tag">FINANCIALS</span></div><div class="chart-wrap"><canvas id="financialChart" role="img" aria-label="Primary and secondary sales by month"></canvas><p class="empty" hidden>No data available</p></div><details class="data-table"><summary>View exact values</summary><div id="financial-values" class="table-scroll"></div></details></article>
+        <article class="panel"><div class="panel-header"><div><h2>Secondary by agency</h2><p>Agency contribution over time · ₹</p></div><span class="tag">AGENCIES</span></div><div class="chart-wrap"><canvas id="agencyChart" role="img" aria-label="Monthly secondary sales by agency"></canvas><p class="empty" hidden>No data available</p></div><details class="data-table"><summary>View exact values</summary><div id="agency-values" class="table-scroll"></div></details></article>
+      </div>
+      <section class="insights panel"><div class="insights-title"><span class="insight-icon" aria-hidden="true">✧</span><div><h2>What the numbers say</h2><p>Calculated from your selected data</p></div></div><ul id="insights"><li>Insights will appear when your data loads.</li></ul></section>
+      <div id="products" class="section-heading anchor"><div><p class="eyebrow">PRODUCT INTELLIGENCE</p><h2>Movement, mapped to your products</h2></div><span id="product-count" class="muted"></span></div>
+      <div class="chart-grid">
+        <article class="panel"><div class="panel-header"><div><h2>Top products by units sold</h2><p>Top 10 · selected period · normalized products</p></div><span class="tag">UNITS</span></div><div class="chart-wrap tall"><canvas id="topChart" role="img" aria-label="Top ten products by units sold"></canvas><p class="empty" hidden>No data available</p></div><details class="data-table"><summary>View values &amp; source rows</summary><div id="top-values" class="table-scroll"></div></details></article>
+        <article class="panel"><div class="panel-header"><div><h2>Product sales trend</h2><p>Monthly units sold, split by agency</p></div></div><label class="trend-picker">Product to explore<select id="trendProduct"></select></label><div class="chart-wrap product-trend"><canvas id="productChart" role="img" aria-label="Selected product units sold by month and agency"></canvas><p class="empty" hidden>No data available</p></div><details class="data-table"><summary>View exact values</summary><div id="product-values" class="table-scroll"></div></details></article>
+      </div>
+      <div id="inventory" class="section-heading anchor"><div><p class="eyebrow">INVENTORY INTELLIGENCE</p><h2>Know where your stock stands</h2></div><span id="inventory-month" class="muted"></span></div>
+      <div class="chart-grid inventory-grid">
+        <article class="panel"><div class="panel-header"><div><h2>Closing stock by product</h2><p>Top 10 by closing inventory value · ₹</p></div></div><div class="chart-wrap tall"><canvas id="stockChart" role="img" aria-label="Top ten products by closing inventory value"></canvas><p class="empty" hidden>No data available</p></div><details class="data-table"><summary>View values &amp; source rows</summary><div id="stock-values" class="table-scroll"></div></details></article>
+        <article class="panel"><div class="panel-header"><div><h2>Slow / no movement candidates</h2><p>Positive closing quantity · individual stock observations</p></div><span id="candidate-count" class="count">0</span></div><div class="thresholds"><label>Units sold ≤<input id="maxUnits" type="number" min="0" value="0" step="any"></label><label>Stock age ≥<input id="minAge" type="number" min="0" placeholder="Any" step="any"></label><button id="threshold-apply" class="button" type="button">Apply</button></div><p class="scope-note">Age is shown as recorded in the sheet; its unit is not assumed.</p><div id="candidate-table" class="table-scroll candidates"></div><button id="view-candidates" type="button" class="text-button footer-link">Explore all candidate source rows →</button></article>
+      </div>
+      <section class="ask panel"><div><span class="tag">NEXT UP</span><h2>Ask your sales data</h2><p>A place for your next question. Guided exploration is available now.</p></div><div class="ask-control"><label class="sr-only" for="ask-input">Future natural-language questions</label><input id="ask-input" placeholder="e.g. Compare ACN 1000 sales between Madhu and Meda" disabled><div class="ask-bottom"><span>Natural-language queries are planned for a future version.</span><button type="button" id="explore" class="text-button">Explore product trends ↗</button></div></div></section>
+      <details class="diagnostics panel"><summary><span>Data quality &amp; traceability</span><span class="muted">Source coverage, mappings and exclusions</span></summary><div id="diagnostic-values"></div><div class="diagnostic-actions"><button id="source-rows" type="button" class="button">Inspect product source rows</button><button id="financial-rows" type="button" class="button">Inspect financial statements</button></div><h3>Unmapped aliases in selected month / agency scope</h3><div id="unmapped-table" class="table-scroll"></div></details>
+    </div>
+    <footer><span>Renova <span class="footer-dot">/</span> Clarity in every number.</span><span>Google Sheets source · Read-only · No AI-generated insights</span></footer>
+  </main>
+  <dialog id="drilldown" aria-labelledby="drill-title"><div class="dialog-header"><div><p class="eyebrow">TRACE THE NUMBERS</p><h2 id="drill-title">Source rows</h2></div><button id="close-dialog" class="button" type="button" aria-label="Close source rows">Close ✕</button></div><p id="drill-status" role="status" aria-live="polite"></p><div id="drill-table" class="table-scroll"></div><div class="pagination"><button id="previous-page" class="button" type="button">← Previous</button><span id="page-info"></span><button id="next-page" class="button" type="button">Next →</button></div></dialog>
+  <?!= include_('Scripts'); ?>
+</body>
+</html>
