@@ -1,5 +1,6 @@
 'use client';
 import LiquidityBadge,{coverDays} from './LiquidityBadge.jsx';
+import {displayCoverage} from '../lib/analytics.js';
 import {useState} from 'react';
 import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage } from './ChartPanel.jsx';
@@ -24,6 +25,8 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
   const signedUnits=value=>value==null?'—':(value>0?'+':'')+exact(value)+' units';
   const valueRange=sharedValueRange(monthly.agencies.flatMap(series=>series.rows.flatMap(row=>[row.purchased,row.units])));
   const fullStockMonths=monthly.agencies.every(series=>series.rows.every(row=>!row.observations||row.coverage==='Full month'));
+  const monthlyNotes=monthly.months.map((_,i)=>displayCoverage(monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · ')));
+  const noteColumns=monthlyNotes.some(Boolean)?[{label:'Data note',render:row=>monthlyNotes[row.index]||'—'}]:[];
   const monthlyColumns=[{label:'Month',render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month})}>{monthLabel(r.month)}</button>},...[['Restocked units','purchased'],['Sold units','units']].map(([label,key])=>({label,numeric:true,render:r=>exact(r[key])}))];
   const agencyColumns=[{label:'Agency',render:r=><button type="button" onClick={()=>onAgency(r.agency)}>{r.agency}</button>},
     ...[['Units sold','units',false],['Units received','purchased',false],['Closing units','qoh',false],['Stock value ₹','value',true]].map(([label,key,currency])=>({label,numeric:true,render:r=>exact(r[key],currency)})),
@@ -41,16 +44,16 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
     <div className="chart-grid product-summary-charts">
       <ChartPanel title="Monthly sales by agency" subtitle={(labels[0]||'—')+' – '+(labels.at(-1)||'—')+' · sold units · missing observations remain gaps'} unit="Units" labels={labels}
         datasets={monthly.agencies.map(series=>({label:series.agency,data:series.rows.map(row=>row.units),color:agencyColor(series.agency)}))}
-        coverage={monthly.months.map((_,i)=>monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · '))}
-        takeaway={showInsights?monthly.agencies.map(series=>{const last=series.rows.at(-1);return last?.units==null?series.agency+': sales are unavailable for '+monthLabel(f.end)+'.':series.agency+': '+exact(last.units)+' units sold in '+monthLabel(f.end)+' ('+last.coverage.toLowerCase()+').';}):null}
+        coverage={monthlyNotes}
+        takeaway={showInsights?monthly.agencies.map(series=>{const last=series.rows.at(-1);return last?.units==null?series.agency+': sales are unavailable for '+monthLabel(f.end)+'.':series.agency+': '+exact(last.units)+' units sold in '+monthLabel(f.end)+(displayCoverage(last.coverage)?' ('+displayCoverage(last.coverage).toLowerCase()+')':'')+'.';}):null}
         onPoint={i=>onSource({productKey:product.key,month:monthly.months[i]})} interactionHint="Select a month to inspect its source rows."
-        columns={[monthlyColumns[0],...monthly.agencies.map((series,i)=>({label:series.agency+' sold units',numeric:true,render:row=>exact(row.values[i])})),{label:'Coverage',render:row=>monthly.agencies.map(series=>series.agency+': '+series.rows[row.index].coverage).join(' · ')}]}
+        columns={[monthlyColumns[0],...monthly.agencies.map((series,i)=>({label:series.agency+' sold units',numeric:true,render:row=>exact(row.values[i])})),...noteColumns]}
         rows={monthly.months.map((month,i)=>({month,index:i,values:monthly.agencies.map(series=>series.rows[i].units)}))}/>
     <div className="product-stock-chart">
       <ChartPanel title={(fullStockMonths?'Month-end stock on hand: ':'Statement closing stock: ')+product.name} subtitle={fullStockMonths?'Units remaining at each month end · compare agencies':'Closing units by statement month · partial statements may end before month-end'} unit="Units" labels={labels} takeaway={showInsights?monthly.stockTakeaways:null} coverage={monthly.months.map((_,i)=>monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · '))}
         datasets={monthly.agencies.map(series=>({label:series.agency,data:series.rows.map(r=>r.qoh),color:['#3489e0','#e65722'][data.options.agencies.indexOf(series.agency)%2]}))}
         onPoint={i=>onSource({productKey:product.key,month:monthly.months[i]})} interactionHint="Select a month to inspect its stock observations. Gaps mean the observation is missing."
-        columns={[monthlyColumns[0],...monthly.agencies.map((series,i)=>({label:series.agency+' stock units',numeric:true,render:r=>exact(r.values[i])})),{label:'Coverage',render:r=>monthly.agencies.map(series=>series.agency+': '+series.rows[r.index].coverage).join(' · ')}]}
+        columns={[monthlyColumns[0],...monthly.agencies.map((series,i)=>({label:series.agency+' stock units',numeric:true,render:r=>exact(r.values[i])})),...noteColumns]}
         rows={monthly.months.map((month,i)=>({month,index:i,values:monthly.agencies.map(series=>series.rows[i].qoh)}))}/>
     </div>
     </div>
@@ -60,7 +63,7 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
       {monthly.agencies.map(series=><ChartPanel key={series.agency} title={series.agency+': '+product.name+' — restocked vs sold'} subtitle="Monthly units · blue = restocked · orange = sold · common scale across agencies" type="bar" unit="Units" labels={labels} valueRange={valueRange} takeaway={showInsights?series.takeaway:null} coverage={series.rows.map(r=>r.coverage)}
         datasets={[{label:'Restocked',data:series.rows.map(r=>r.purchased),color:'#3489e0'},{label:'Sold',data:series.rows.map(r=>r.units),color:'#e65722'}]}
         onPoint={i=>onSource({productKey:product.key,month:monthly.months[i],agency:series.agency})} interactionHint="Select a month to inspect this agency’s source rows. Missing observations appear as gaps or —."
-        columns={[{...monthlyColumns[0],render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month,agency:series.agency})}>{monthLabel(r.month)}</button>},...monthlyColumns.slice(1),{label:'Coverage',key:'coverage'}]} rows={series.rows}/>)}
+        columns={[{...monthlyColumns[0],render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month,agency:series.agency})}>{monthLabel(r.month)}</button>},...monthlyColumns.slice(1),...(series.rows.some(row=>displayCoverage(row.coverage))?[{label:'Data note',render:row=>displayCoverage(row.coverage)||'—'}]:[])]} rows={series.rows}/>)}
     </div>
     </details>
     <details className="additional-analysis"><summary>Growth, receipt/sales gap & stock cover</summary>

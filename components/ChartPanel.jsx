@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
 import { chartScales } from '../lib/chart-scales.js';
-import { displayMonth, displayPercentage } from '../lib/analytics.js';
+import { displayMonth, displayPercentage, displayCoverage } from '../lib/analytics.js';
 
 export const colors = ['#3489e0','#e65722','#8b79b9','#239d98','#b99a64'];
 export const exact = (value, currency = false) => value == null ? '—' : (currency ? '₹' : '') + Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -36,7 +36,7 @@ export default function ChartPanel({ title, subtitle, labels, datasets, currency
       options: {
         responsive:true, maintainAspectRatio:false, indexAxis:spec.horizontal ? 'y' : 'x', animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration:200 },
         interaction:{ mode:spec.horizontal ? 'nearest' : 'index', intersect:false },
-        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';const coverage=spec.coverage?.[item.dataIndex];return item.label+(coverage&&coverage!=='Full month'?' · '+coverage:'');},label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
+        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
         scales:chartScales(spec,v=>compact(v,spec.currency)),
         onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index); }
       }
