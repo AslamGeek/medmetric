@@ -4,9 +4,28 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {randomUUID,createHmac} from 'node:crypto';
 import {FIELD_SPEC,validateFieldRecord,fieldProducts,latestPharmacyStock,targetActual,indiaToday} from '../lib/field-tracking.js';
-import {handleFields} from '../lib/field-server.js';
+import {handleFields,fieldBackend,shareFieldReads} from '../lib/field-server.js';
 const source=()=>({...Object.fromEntries(Object.keys(FIELD_SPEC).map(k=>[k,[]])),DOCTORS:[{Doctor_ID:'D1',Doctor_Name:'Doctor One',Pharmacy_ID:'P1'},{Doctor_ID:'D2',Pharmacy_ID:'P1'}],PHARMACIES:[{Pharmacy_ID:'P1'}],products:[{Product_SKU:'SYP',Product_Name:'Product syrup'},{Product_SKU:'DROPS',Product_Name:'Product drops'}],agencies:['AGENCY']});
 const rx=()=>({Rx_ID:randomUUID(),Reported_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Confirmation:'REPORTED'});
+test('a temporary non-JSON backend response is retried with a new signed request',async()=>{
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;
+ process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-backend-secret-for-retry-123456789';
+ const packets=[];try{const result=await fieldBackend({action:'field_read'},async(url,options)=>{packets.push(JSON.parse(options.body));return packets.length===1?new Response('<html>Temporary upstream response</html>',{status:200,headers:{'Content-Type':'text/html'}}):Response.json({ok:true,data:{products:[]}});});assert.equal(result.ok,true);assert.equal(packets.length,2);assert.notEqual(JSON.parse(packets[0].payload).nonce,JSON.parse(packets[1].payload).nonce);}
+ finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
+test('simultaneous field reads share a request, while refresh reads again and writes remain separate',async()=>{
+ let calls=0,release;const loader=shareFieldReads(async command=>{calls++;if(command.action==='field_read')await new Promise(r=>{release=r;});return {ok:true};});
+ const a=loader({action:'field_read'}),b=loader({action:'field_read'});await Promise.resolve();assert.equal(calls,1);await loader({action:'field_save'});assert.equal(calls,2);release();await Promise.all([a,b]);const c=loader({action:'field_read'});await Promise.resolve();assert.equal(calls,3);release();await c;
+});
+test('retries stay bounded and do not retry stale edits or permanent authorization failures',async()=>{
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-backend-secret-for-retry-123456789';
+ try{
+ let calls=0;await assert.rejects(()=>fieldBackend({action:'field_read'},async()=>{calls++;return new Response('HTML');}),/invalid response/);assert.equal(calls,2);
+ calls=0;await assert.rejects(()=>fieldBackend({action:'field_save',operation:'update'},async()=>{calls++;throw new DOMException('timeout','TimeoutError');}),/Refresh data to check/);assert.equal(calls,1);
+ calls=0;await assert.rejects(()=>fieldBackend({action:'field_read'},async()=>{calls++;return Response.json({ok:false,error:'Unauthorized'});}),/Update the deployed/);assert.equal(calls,1);
+ calls=0;const saved=await fieldBackend({action:'field_save',operation:'create',record:{Rx_ID:'same-id'}},async()=>{calls++;if(calls===1)throw new DOMException('timeout','TimeoutError');return Response.json({ok:true,record:{Rx_ID:'same-id'},alreadySaved:true});});assert.equal(saved.alreadySaved,true);assert.equal(calls,2);
+ }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
 test('unknown prescription dates and quantities stay unknown, while stock zero is valid',()=>{
  const d=source(),r=validateFieldRecord('RX_ACTIVITY',rx(),d,'2026-10-02');assert.equal(r.Prescription_Date,'');assert.equal(r.Quantity,'');
  const stock=validateFieldRecord('PHARMACY_STOCK_CHECKS',{Stock_Check_ID:randomUUID(),Checked_Date:'2026-10-01',Pharmacy_ID:'P1',Product_SKU:'SYP',Remaining_Units:0,Quantity_Unit:'BOTTLE',Source:'PHARMACIST'},d,'2026-10-02');assert.equal(stock.Remaining_Units,0);
