@@ -8,7 +8,7 @@ import ProductView from './ProductView.jsx';
 import ProductCatalog from './ProductCatalog.jsx';
 import ProductRankings from './ProductRankings.jsx';
 
-const reports=[['overview','Overview','dashboard'],['sales','Sales rankings','bars'],['inventory','Stock watch','box'],['products','Product explorer','search'],['quality','Data quality','check']];
+const reports=[['overview','Overview','dashboard'],['products','Product explorer','search'],['sales','Sales rankings','bars'],['inventory','Stock watch','box'],['quality','Data quality','check']];
 const numeric=(label,key,currency=false)=>({label,numeric:true,render:r=>exact(r[key],currency)});
 const productLink=(label,action)=><button type="button" onClick={action}>{label}</button>;
 function Icon({kind}) {
