@@ -19,26 +19,40 @@ export function DataTable({ columns, rows, empty = 'No data available' }) {
   return <div className="table-scroll"><table><thead><tr>{columns.map(c => <th key={c.label} scope="col">{c.label}</th>)}</tr></thead><tbody>{rows.map((r,i) => <tr key={r.key || r.sheetRow || i}>{columns.map(c => <td key={c.label} className={c.numeric ? 'num' : ''}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children, unit, interactionHint, valueRange, takeaway, coverage, chartHeight, emptyText }) {
+export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children, unit, interactionHint, valueRange, takeaway, coverage, chartHeight, emptyText, stacked=false, xAxisTitle, yAxisTitle, referenceLines }) {
   const [view,setView]=useState('chart');
   const id=useId();
   const axisUnit=unit || (currency?'₹':'Units');
   const canvas = useRef(null), onPointRef = useRef(onPoint);
   onPointRef.current = onPoint;
-  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type,axisUnit,valueRange,coverage });
+  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type,axisUnit,valueRange,coverage,stacked,xAxisTitle,yAxisTitle,referenceLines });
   const available = datasets.some(s => s.data.some(v => v != null));
   useEffect(() => {
     if (view!=='chart' || !canvas.current || !available) return;
     const spec = JSON.parse(signature);
+    const scatter=spec.type==='scatter';
+    const scales=scatter?{
+      x:{type:'linear',min:0,title:{display:true,text:spec.xAxisTitle||'Stock cover · days'},grid:{color:'#e5e9ee'},border:{display:false},ticks:{color:'#687586',callback:v=>compact(v)}},
+      y:{type:'linear',beginAtZero:true,title:{display:true,text:spec.yAxisTitle||'Sales pace change · %'},grid:{color:'#e5e9ee'},border:{display:false},ticks:{color:'#687586',callback:v=>compact(v)+'%'}}
+      }:chartScales(spec,v=>compact(v,spec.currency));
+    if(spec.stacked) {scales.x.stacked=true;scales.y.stacked=true;}
+    const guides={id:'signalReferenceLines',beforeDatasetsDraw(chart){
+      if(!scatter||!spec.referenceLines)return;
+      const {ctx,chartArea,scales:axes}=chart;ctx.save();ctx.setLineDash([4,4]);ctx.strokeStyle='#98acc5';ctx.lineWidth=1;
+      for(const value of spec.referenceLines.x||[]) {const x=axes.x.getPixelForValue(value);if(x<chartArea.left||x>chartArea.right)continue;ctx.beginPath();ctx.moveTo(x,chartArea.top);ctx.lineTo(x,chartArea.bottom);ctx.stroke();}
+      for(const value of spec.referenceLines.y||[]) {const y=axes.y.getPixelForValue(value);if(y<chartArea.top||y>chartArea.bottom)continue;ctx.beginPath();ctx.moveTo(chartArea.left,y);ctx.lineTo(chartArea.right,y);ctx.stroke();}
+      ctx.restore();
+    }};
     const chart = new Chart(canvas.current, {
       type: spec.type,
-      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => ({ label:s.label, data:s.data, borderColor:s.color || colors[i % colors.length], backgroundColor:s.color || colors[i % colors.length], borderWidth:spec.type === 'line' ? 2.5 : 0, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:s.color || colors[i % colors.length], pointBorderWidth:1, tension:0, fill:false, borderRadius:4, maxBarThickness:spec.horizontal ? 24 : 42, spanGaps:false })) },
+      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => ({ label:s.label, data:s.data, borderColor:s.color || colors[i % colors.length], backgroundColor:s.color || colors[i % colors.length], borderWidth:spec.type === 'line' ? 2.5 : 0, pointRadius:scatter?5:4, pointHoverRadius:7, pointBackgroundColor:s.color || colors[i % colors.length], pointBorderWidth:1, tension:0, fill:false, borderRadius:4, maxBarThickness:spec.horizontal ? 24 : 42, spanGaps:false })) },
+      plugins:[guides],
       options: {
         responsive:true, maintainAspectRatio:false, indexAxis:spec.horizontal ? 'y' : 'x', animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration:200 },
-        interaction:{ mode:spec.horizontal ? 'nearest' : 'index', intersect:false },
-        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
-        scales:chartScales(spec,v=>compact(v,spec.currency)),
-        onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index); }
+        interaction:{ mode:scatter||spec.horizontal ? 'nearest' : 'index', intersect:scatter },
+        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:scatter?'circle':spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';if(scatter)return item.raw.name;const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => scatter?['Stock cover: '+exact(ctx.parsed.x)+' days','Daily sales pace change: '+percentage(ctx.parsed.y),'Review: '+ctx.dataset.label]:ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
+        scales,
+        onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index,points[0].datasetIndex); }
       }
     });
     return () => chart.destroy();

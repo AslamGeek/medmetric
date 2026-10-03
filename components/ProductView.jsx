@@ -4,6 +4,8 @@ import {displayCoverage} from '../lib/analytics.js';
 import {useState} from 'react';
 import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage } from './ChartPanel.jsx';
+import {SignalBadge} from './ProductSignals.jsx';
+import {actionCategories} from '../lib/product-signals.js';
 
 function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,shareKey,formatValue,formatTotal,reason}) {
   return <article className="kpi product-metric"><p>{label}<span>{unit}</span></p><strong title={formatValue(value)}>{(formatTotal||formatValue)(value)}</strong><small>{note}</small>{value==null&&reason&&<div className="metric-explanation">{reason}</div>}<ul className="metric-agencies">{agencies.map(a=>{
@@ -15,6 +17,7 @@ function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,sh
 export default function ProductView({data,onSource,onAgency,showInsights=true}) {
   const [section,setSection]=useState('analysis');
   const product=data.productDetail, monthly=product.monthly, f=data.filters;
+  const signal=data.signals?.products.find(row=>row.key===product.key);
   const labels=monthly.months.map(monthLabel);
   const liquidity=data.liquidity.products.find(row=>row.key===product.key);
   const liquidAgencies=liquidity?.agencies||[];
@@ -34,6 +37,10 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
   return <section id="product-detail" aria-label={`${product.name} product analysis`}>
     <div className="product-context"><div className="product-tags">{[product.brand,product.sku && 'SKU '+product.sku,...product.statuses].filter(Boolean).map(tag=><span key={tag}>{tag}</span>)}</div><button className="button" onClick={()=>onSource({productKey:product.key})}>View source rows ↗</button></div>
 <div className="liquidity-summary"><div><LiquidityBadge value={liquidity}/><strong>{coverDays(liquidity?.daysOfCover)}</strong><span>Estimated stock cover at the last three months’ sales pace</span></div><p>{baseline} · {data.liquidity.days} calendar days. {liquidity?.reason||'Closing units ÷ average daily units sold. Stock cover is not stock age.'}</p><div className="liquidity-agency-tags">{liquidAgencies.map(row=><button type="button" key={row.agency} onClick={()=>onAgency(row.agency)}><span>{row.agency}</span><LiquidityBadge value={row}/><span>{coverDays(row.daysOfCover)}</span></button>)}</div></div>
+    {signal&&<section className="product-signal-summary" aria-label="Product momentum and review">
+      <article><h2>Sales momentum <SignalBadge value={signal.momentum}/></h2><strong>{percentage(signal.growth)}</strong><p>Daily sales pace · {data.signals.recentMonths.map(monthLabel).join(' → ')} vs {data.signals.previousMonths.map(monthLabel).join(' → ')}</p><p>{exact(signal.previous.units)} previous units → {exact(signal.recent.units)} recent units · {signal.momentumReason||'Compared using six full calendar months and daily sales pace.'}</p></article>
+      <article><h2>Review priority</h2><SignalBadge kind="action" value={signal.action}/><p>{actionCategories.find(row=>row.key===signal.action)?.rule}.</p><p>Stock observed in {monthLabel(f.end)}. Review stock availability and supply timing before taking action.</p></article>
+    </section>}
     <nav className="product-report-tabs" aria-label="Product analysis views">{[['analysis','Analysis & charts'],['agencies','Agency comparison']].map(([key,label])=><button type="button" key={key} aria-pressed={section===key} onClick={()=>setSection(key)}>{label}</button>)}</nav>
     <div hidden={section!=='analysis'}><div className="section-heading"><h2>Product performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
     <section className="kpi-grid" aria-label="Product metrics">{[
