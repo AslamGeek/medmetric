@@ -15,7 +15,7 @@ const formGroups={
   POB_ACTIVITY:[['Doctor & pharmacy','Select the source of this booking.',['Doctor_ID','Pharmacy_ID','Agency']],['Booking','Record the product, quantity and booking date.',['Product_SKU','Booked_Units','Quantity_Unit','Booking_Date']],['Supply','Record supplied quantities when they are confirmed.',['Status','Fulfilled_Units','Fulfilled_Date']],['Notes','Keep any useful booking details here.',['Notes']]]
 };
 async function request(body){const response=await fetch('/api/fields',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',signal:AbortSignal.timeout(60000)});let result;try{result=await response.json();}catch{throw new Error('The field-data connection returned an invalid response. Your entry is kept in the form.');}if(!response.ok)throw new Error(result.error||'Could not load field data.');return result;}
-export default function FieldWorkspace({visible,loadRequested=false,refreshVersion,onLoadingChange,onSnapshotChange}){
+export default function FieldWorkspace({visible,loadRequested=false,refreshVersion,onLoadingChange,onSnapshotChange,visits=[],onLogVisit}){
   const [data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const [readError,setReadError]=useState('');
   const [section,setSection]=useState('doctors'),[doctorId,setDoctorId]=useState(''),[directoryReset,setDirectoryReset]=useState(0);
@@ -91,7 +91,7 @@ export default function FieldWorkspace({visible,loadRequested=false,refreshVersi
     {error&&!editor&&<p className="message error" role="alert">{error}</p>}{notice&&<p className="message" role="status">{notice}</p>}
     <div hidden={section!=='doctors'} className={'field-doctor-layout '+(doctor?'has-profile':'')}>
       <DoctorDirectory data={data} doctorId={doctorId} onSelect={selectDoctor} onAdd={()=>open('DOCTORS')} resetVersion={directoryReset}/>
-      {section==='doctors'&&doctor&&<DoctorProfile doctor={doctor} data={data} onClose={closeProfile} onEdit={()=>open('DOCTORS',doctor)} onLink={()=>open('DOCTOR_PRODUCTS')} onPOB={()=>open('POB_ACTIVITY')} onEditLink={r=>open('DOCTOR_PRODUCTS',r)} onHistory={()=>{setScope({product:'',pharmacy:'',start:'',end:''});setSection('POB_ACTIVITY');}} onEditPOB={r=>open('POB_ACTIVITY',r)}/>}
+      {section==='doctors'&&doctor&&<DoctorProfile doctor={doctor} data={data} visits={visits} onLogVisit={onLogVisit} onClose={closeProfile} onEdit={()=>open('DOCTORS',doctor)} onLink={()=>open('DOCTOR_PRODUCTS')} onPOB={()=>open('POB_ACTIVITY')} onEditLink={r=>open('DOCTOR_PRODUCTS',r)} onHistory={()=>{setScope({product:'',pharmacy:'',start:'',end:''});setSection('POB_ACTIVITY');}} onEditPOB={r=>open('POB_ACTIVITY',r)}/>}
     </div>
     {section==='POB_ACTIVITY'&&<section className="panel field-pob-view">
       <div className="profile-topline"><button type="button" className="text-button" onClick={()=>setSection('doctors')}>← Back to {doctor?'doctor':'doctors'}</button></div>

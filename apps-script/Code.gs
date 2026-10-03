@@ -17,7 +17,7 @@ function doPost(e) {
     for(let i=0;i<64;i++) difference |= expected.charCodeAt(i)^packet.signature.charCodeAt(i);
     if(difference) return reply_({ok:false,error:'Unauthorized'});
     const command=JSON.parse(packet.payload);
-    if(!['read','field_read','field_save'].includes(command.action) || !Number.isSafeInteger(command.timestamp) || Math.abs(Date.now()-command.timestamp)>60000 || !/^[a-f0-9-]{36}$/.test(command.nonce || '')) return reply_({ok:false,error:'Unauthorized'});
+    if(!['read','field_read','field_save','visits_read','visits_write'].includes(command.action) || !Number.isSafeInteger(command.timestamp) || Math.abs(Date.now()-command.timestamp)>60000 || !/^[a-f0-9-]{36}$/.test(command.nonce || '')) return reply_({ok:false,error:'Unauthorized'});
     const lock=LockService.getScriptLock();
     if(!lock.tryLock(5000)) return reply_({ok:false,error:'Busy'});
     try {
@@ -27,6 +27,19 @@ function doPost(e) {
       cache.put(key,'used',120);
     } finally { lock.releaseLock(); }
     const ss=SpreadsheetApp.openById(SOURCE_ID);
+    if(command.action==='visits_read'||command.action==='visits_write'){
+      const visitLock=LockService.getScriptLock();
+      if(!visitLock.tryLock(10000))return reply_({ok:false,error:'Another save is in progress. Retry your visit unchanged.',retryable:true});
+      try{
+        const sheet=ensureVisits_(ss);
+        if(command.action==='visits_read'){
+          const master=readFields_(ss,['DOCTORS','PHARMACIES'],false,false,{options:true});
+          return reply_({ok:true,data:{schemaVersion:1,doctors:visitDoctors(master),camps:master.options.Camps,callSchedules:master.options['Call Schedule'],visits:readVisits_(sheet,ss.getSpreadsheetTimeZone()).filter(v=>v.active)}});
+        }
+        return reply_(writeVisit_(ss,sheet,command));
+      }catch(error){return reply_({ok:false,error:error.message||'Could not load visits.'});}
+      finally{visitLock.releaseLock();}
+    }
     if(command.action==='field_read'){const data=readFields_(ss);removeRetiredTabs_(ss);return reply_({ok:true,data});}
     if(command.action==='field_save'){
       const writeLock=LockService.getScriptLock();
@@ -238,6 +251,68 @@ function appendLinkRecords_(ss,newRows){
     SpreadsheetApp.flush();
   }
 }
+// Idempotent setup; call manually before deploying, or the first Visits request creates it.
+function setupVisits(){
+  const lock=LockService.getScriptLock();lock.waitLock(20000);
+  try{ensureVisits_(SpreadsheetApp.openById(SOURCE_ID));}finally{lock.releaseLock();}
+}
+function ensureVisits_(ss){
+  let sheet=ss.getSheetByName('VISITS');
+  if(!sheet){
+    sheet=ss.insertSheet('VISITS');
+    sheet.getRange(1,1,1,VISIT_HEADERS.length).setValues([VISIT_HEADERS]).setFontWeight('bold').setBackground('#163a54').setFontColor('#ffffff').setWrap(true);
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidths(1,VISIT_HEADERS.length,130);
+    sheet.setColumnWidth(3,200);sheet.setColumnWidths(7,2,320);
+    sheet.hideColumns(9,4);
+    sheet.getRange(1,1,sheet.getMaxRows(),VISIT_HEADERS.length).createFilter();
+  }
+  const headers=sheet.getRange(1,1,1,VISIT_HEADERS.length).getValues()[0];
+  if(!VISIT_HEADERS.every((h,i)=>headers[i]===h))throw new Error('VISITS headers changed. Restore the expected headers before saving.');
+  return sheet;
+}
+function readVisits_(sheet,timezone){
+  if(sheet.getLastRow()<2)return [];
+  const ids=new Set();
+  return sheet.getRange(2,1,sheet.getLastRow()-1,VISIT_HEADERS.length).getValues().filter(row=>row.some(v=>v!==''&&v!=null)).map(row=>{
+    const date=row[0] instanceof Date?Utilities.formatDate(row[0],timezone||'Asia/Kolkata','yyyy-MM-dd'):String(row[0]);
+    let doctorIds;try{doctorIds=JSON.parse(row[9]||'[]');}catch{throw new Error('A VISITS row has invalid Doctor IDs. Correct it before refreshing.');}
+    if(!visitDate(date)||!Array.isArray(doctorIds)||doctorIds.some(id=>typeof id!=='string')||!row[8]||ids.has(row[8]))throw new Error('VISITS contains an invalid date or duplicate/missing visit identity. Correct it before refreshing.');
+    ids.add(row[8]);
+    return {localId:String(row[8]),date,day:visitDay(date),camp:String(row[2]),kind:String(row[3]),doctorCount:Number(row[4]),pharmacyCount:Number(row[5]),doctorLines:String(row[6]||'').split('\n').filter(Boolean),pharmacyLines:String(row[7]||'').split('\n').filter(Boolean),doctorIds,createdAt:String(row[10]),updatedAt:String(row[11]),active:row[12]==='YES'};
+  });
+}
+function writeVisit_(ss,sheet,command){
+  if(!['save','undo'].includes(command.operation))throw new Error('Invalid visit operation.');
+  const input=command.visit;
+  if(!input||typeof input!=='object'||!Array.isArray(input.doctorIds)||!visitDate(input.date)||!VISIT_KINDS.includes(input.kind)||typeof input.camp!=='string'||!input.camp.trim()||input.camp.length>150||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.localId||'')||!Number.isFinite(Date.parse(input.createdAt)))throw new Error('Invalid visit bundle.');
+  if(input.doctorIds.length>100||input.doctorIds.some(id=>typeof id!=='string'||id.length>100)||new Set(input.doctorIds).size!==input.doctorIds.length)throw new Error('Invalid doctor selection.');
+  const existing=readVisits_(sheet,ss.getSpreadsheetTimeZone()).find(v=>v.localId===input.localId);
+  if(existing){
+    if(!visitSameIdentity(existing,input))throw new Error('This visit identity already belongs to a different bundle.');
+    if(command.operation==='save'||!existing.active)return {ok:true,visit:existing};
+    const idRows=sheet.getRange(2,9,sheet.getLastRow()-1,1).getValues();
+    const row=idRows.findIndex(r=>r[0]===input.localId)+2;
+    const updatedAt=new Date().toISOString();
+    sheet.getRange(row,12,1,2).setValues([[updatedAt,'NO']]);SpreadsheetApp.flush();
+    return {ok:true,visit:{...existing,active:false,updatedAt}};
+  }
+  let visit;
+  if(command.operation==='undo'){
+    // A tombstone prevents a delayed save from bringing an undone bundle back.
+    visit={...input,day:visitDay(input.date),doctorCount:0,pharmacyCount:0,doctorLines:[],pharmacyLines:[],active:false,updatedAt:new Date().toISOString()};
+  }else{
+    const master=readFields_(ss,['DOCTORS','PHARMACIES'],false,false,{options:true});
+    // Entries queued offline must remain valid after their date passes.
+    visit=visitBuild(input,visitDoctors(master),{allowPast:true,camps:master.options.Camps});
+    visit.updatedAt=new Date().toISOString();
+  }
+  const values=[visit.date,visit.day,visit.camp,visit.kind,visit.doctorCount,visit.pharmacyCount,visit.doctorLines.join('\n'),visit.pharmacyLines.join('\n'),visit.localId,JSON.stringify(visit.doctorIds),visit.createdAt,visit.updatedAt,visit.active?'YES':'NO'].map(v=>typeof v==='string'&&v.startsWith('=')?"'"+v:v);
+  const row=sheet.getLastRow()+1;if(row>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),100);
+  sheet.getRange(row,1,1,VISIT_HEADERS.length).setValues([values]);
+  sheet.getRange(row,7,1,2).setWrap(true);SpreadsheetApp.flush();
+  return {ok:true,visit};
+}
 
 // BEGIN GENERATED FIELD TRACKING
 // Shared with the Apps Script backend by scripts/build-field-backend.js.
@@ -380,3 +455,62 @@ function targetActual(target,data,monthly) {
 }
 
 // END GENERATED FIELD TRACKING
+
+// Shared visit rules. This module is also generated into the signed Sheets backend.
+const VISIT_HEADERS=['Date','Day','Camp','Type','Doctors (count)','Pharmacies (count)','Doctors','Pharmacies','Visit ID','Doctor IDs','Created At','Updated At','Active'];
+const VISIT_KINDS=['Visit','Sunday','Holiday','Leave'];
+const visitText=value=>String(value??'').trim();
+const visitNormalize=value=>visitText(value).toLowerCase().replace(/\s+/g,' ');
+function visitDate(value){
+  return typeof value==='string'&&/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T12:00:00Z'))&&new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;
+}
+function visitToday(now=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);}
+function visitDay(date){return visitDate(date)?new Intl.DateTimeFormat('en-IN',{weekday:'long',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z')):'';}
+function visitAddDays(date,days){const value=new Date(date+'T12:00:00Z');value.setUTCDate(value.getUTCDate()+days);return value.toISOString().slice(0,10);}
+function visitDateLabel(date){return visitDate(date)?new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z')):date;}
+function visitUnique(values){const names=new Map();for(const value of values){const name=visitText(value);if(name&&!names.has(visitNormalize(name)))names.set(visitNormalize(name),name);}return [...names.values()];}
+function visitDoctors(data){
+  const pharmacies=new Map((data.PHARMACIES||[]).map(p=>[p.Pharmacy_ID,p.Pharmacy_Name]));
+  return (data.DOCTORS||[]).filter(d=>d.Active==='YES').map(d=>({id:d.Doctor_ID,name:d.Doctor_Name,camp:d.Camp,hospital:d.Hospital||'',specialties:visitText(d.Specialties).split(/[;,|]/).map(v=>v.trim()).filter(Boolean),pharmacy:visitText(d.Pharmacy_Name||pharmacies.get(d.Pharmacy_ID)),callSchedule:d.Call_Schedule||''}));
+}
+function visitLastDates(visits,asOf=visitToday()){
+  const dates=new Map();
+  for(const visit of visits)if(visit.kind==='Visit'&&visit.active!==false&&visit.date<=asOf){
+    for(const id of visit.doctorIds||[])if(!dates.has(id)||dates.get(id)<visit.date)dates.set(id,visit.date);
+  }
+  return dates; // Never infer identities from doctor names.
+}
+function visitRecency(date,asOf=visitToday()){
+  if(!date)return {label:'Never visited',stale:true};
+  const days=Math.max(0,Math.round((Date.parse(asOf+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000));
+  return {label:days===0?(asOf===visitToday()?'Visited today':'Visited on selected date'):days===1?'1 day ago':days+' days ago',stale:days>=14};
+}
+function visitPicker(doctors,visits,{camp,date,query='',specialty='',callSchedule=''}={}){
+  const last=visitLastDates(visits,date),words=visitNormalize(query).split(' ').filter(Boolean);
+  return doctors.filter(d=>d.camp===camp&&(!specialty||d.specialties.includes(specialty))&&(!callSchedule||visitNormalize(d.callSchedule)===visitNormalize(callSchedule))&&words.every(word=>visitNormalize([d.name,d.hospital,d.pharmacy].join(' ')).includes(word))).sort((a,b)=>(last.get(a.id)||'').localeCompare(last.get(b.id)||'')||a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+}
+function visitBuild({localId,date,camp,kind='Visit',doctorIds=[],createdAt=new Date().toISOString()},doctors,{today=visitToday(),allowPast=false,camps=[]}={}){
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(localId||''))throw new Error('Invalid visit identity.');
+  if(!visitDate(date))throw new Error('Choose a valid visit date.');
+  if(!allowPast&&date<today)throw new Error('Past dates cannot be logged.');
+  if(!visitText(camp)||camp.length>150||(camps.length&&!camps.includes(camp)))throw new Error('Choose a camp from the current list.');
+  if(!VISIT_KINDS.includes(kind))throw new Error('Choose a valid visit type.');
+  if(visitDay(date)==='Sunday'&&kind!=='Sunday')throw new Error('Sunday is a no-visits day.');
+  if(visitDay(date)!=='Sunday'&&kind==='Sunday')throw new Error('The selected date is not a Sunday.');
+  if(!Array.isArray(doctorIds)||doctorIds.length>100||doctorIds.some(id=>typeof id!=='string')||new Set(doctorIds).size!==doctorIds.length)throw new Error('Choose up to 100 different doctors.');
+  if(!Number.isFinite(Date.parse(createdAt)))throw new Error('Invalid visit creation time.');
+  if(kind!=='Visit'&&doctorIds.length)throw new Error('No-visits days cannot include doctors.');
+  const selected=kind==='Visit'?doctorIds.map(id=>{const matches=doctors.filter(d=>d.id===id);if(matches.length!==1||matches[0].camp!==camp)throw new Error('A selected doctor is no longer active in this camp. Refresh doctors and review this bundle.');return matches[0];}):[];
+  if(kind==='Visit'&&!selected.length)throw new Error('Select at least one doctor.');
+  const pharmacies=visitUnique(selected.map(d=>d.pharmacy));
+  return {localId,date,day:visitDay(date),camp,kind,doctorIds:kind==='Visit'?[...doctorIds]:[],doctorCount:selected.length,pharmacyCount:pharmacies.length,doctorLines:kind==='Visit'?selected.map((d,i)=>`${i+1}. ${d.name} (${d.specialties.join(', ')||'General'})`):['NO_VISIT:'+kind],pharmacyLines:pharmacies.map((name,i)=>`${i+1}. ${name}`),createdAt,updatedAt:createdAt,active:true};
+}
+function visitSameIdentity(a,b){return a.localId===b.localId&&a.date===b.date&&a.camp===b.camp&&a.kind===b.kind&&JSON.stringify(a.doctorIds)===JSON.stringify(b.doctorIds);}
+function visitHistory(visits,{date='',camp=''}={}){return visits.filter(v=>v.active!==false&&(!date||v.date===date)&&(!camp||v.camp===camp)).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt)||a.localId.localeCompare(b.localId));}
+function visitDisplayLine(line){return String(line).replace(/^\s*\d+\.\s*/,'');}
+function visitMonthGrid(month){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))return [];
+  const first=month+'-01',offset=(new Date(first+'T12:00:00Z').getUTCDay()+6)%7;
+  const next=visitAddDays(first,32).slice(0,7)+'-01',days=Math.round((Date.parse(next+'T12:00:00Z')-Date.parse(first+'T12:00:00Z'))/86400000);
+  return [...Array(offset).fill(null),...Array.from({length:days},(_,i)=>visitAddDays(first,i))];
+}

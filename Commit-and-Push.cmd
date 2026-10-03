@@ -81,6 +81,15 @@ $appFiles = @(
     'tests/product-liquidity.test.js',
     'tests/report-filters.test.js',
     'tests/publisher.test.js',
+    'app/visits.css',
+    'app/api/visits/route.js',
+    'components/Visits.jsx',
+    'lib/visits.js',
+    'lib/visit-session.js',
+    'lib/visit-server.js',
+    'tests/visits.test.js',
+    'tests/visit-session.test.js',
+    'tests/visit-backend.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
 )
