@@ -205,6 +205,15 @@ fieldset.filters{margin:0;min-width:0}.account-actions{display:flex;align-items:
 .product-picker-list label>span{overflow-wrap:anywhere;min-width:0}
 .product-picker-list small{display:block;font-size:9px;color:#99a9bf;margin-top:2px}
 .product-picker>small{font-size:10px;color:#7d94b2}
+.doctor-specialty-picker{min-width:0;border:1px solid #dde7f4;border-radius:9px;padding:12px;background:#f9fbff}
+.doctor-specialty-picker legend{font-size:11px;font-weight:600;color:#6581a5;padding:0 6px}
+.doctor-specialty-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:7px;max-height:220px;overflow:auto;margin:4px 0 10px}
+.field-workspace .doctor-specialty-options label{display:flex;flex-direction:row;align-items:center;gap:8px;min-height:37px;padding:7px 9px;border:1px solid #e2eaf5;border-radius:7px;background:#fff;cursor:pointer;font-size:11px;color:#476585}
+.field-workspace .doctor-specialty-options label:has(input:checked){background:#eff5ff;border-color:#92b6ee}
+.field-workspace .doctor-specialty-options input[type=checkbox]{width:16px;height:16px;min-height:0;margin:0;padding:0;flex-shrink:0}
+.doctor-specialty-picker>small{font-size:10px;color:#7d94b2}
+.doctor-id-note{margin:18px 0 0;background:#f3f7fc;padding:11px 13px;border:1px solid #dce7f4;border-radius:7px}
+.doctor-id-note small{display:block;margin-top:4px}
 .field-workspace button:focus-visible,.field-workspace textarea:focus-visible{outline:3px solid #9bbbef;outline-offset:3px}
 @media(max-width:1200px){.field-doctor-layout.has-profile{grid-template-columns:minmax(0,1fr) 320px}.bi-app .doctor-directory,.bi-app .doctor-profile{padding:20px}.has-profile .directory-heading{align-items:flex-start;flex-wrap:wrap;gap:13px}.has-profile .directory-heading h2{font-size:20px}.has-profile .directory-search-row{flex-wrap:wrap}.has-profile .directory-search{flex-basis:100%}.doctor-card-grid{grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}}
 @media(max-width:980px){.field-doctor-layout.has-profile{grid-template-columns:minmax(0,1fr) 295px}.bi-app .doctor-profile{padding:18px}.directory-search-row{flex-wrap:wrap}.directory-search{flex-basis:100%}.directory-heading h2{font-size:20px}.has-profile .directory-results-bar{flex-wrap:wrap}.directory-results-bar>label{margin-left:auto}.field-scope{grid-template-columns:1fr 1fr}.directory-filter-footer>small{flex-basis:100%}}
