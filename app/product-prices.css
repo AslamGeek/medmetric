@@ -22,5 +22,31 @@
 .price-list-heading label{font-size:11px;font-weight:600;color:#647b98;min-width:260px}
 .product-price-list .table-scroll{max-height:620px}
 .product-price-list td:last-child{min-width:200px;max-width:330px;white-space:normal;line-height:1.7}
+.product-card{display:block}
+.product-card-open{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;border:0;padding:0;background:transparent;text-align:left;color:var(--ink);border-radius:5px}
+.product-card-open>span:first-child{min-width:0;flex:1}
+.product-card-open>span:last-child{color:var(--blue);font-size:18px}
+.profile-products article>.catalog-prices{display:grid;gap:12px}
+.scheme-calculator{margin-top:12px;border:1px solid #dce6f3;border-radius:8px;background:#f3f7fd;min-width:0}
+.scheme-calculator>summary{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 12px;color:#386396;font-size:11px;font-weight:600;list-style:none}
+.scheme-calculator>summary::-webkit-details-marker{display:none}
+.scheme-calculator>summary:before{content:'+';font-size:15px}
+.scheme-calculator[open]>summary:before{content:'−'}
+.scheme-calculator>summary>span{font-size:9px;color:#8395ae;font-weight:400;margin-left:auto}
+.scheme-calculator-body{padding:0 12px 12px}
+.scheme-calculator-context{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:2px 0 12px;color:#6b83a1;font-size:10px}
+.scheme-calculator-inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.scheme-calculator-body label{display:block;color:#647b98;font-size:10px;font-weight:600;min-width:0}
+.scheme-calculator-body input:not([type=checkbox]){width:100%;margin:4px 0 0;font-size:13px;min-height:38px;padding:8px}
+.scheme-calculator-body>label{margin-bottom:12px}
+.scheme-calculator-body>label>small{display:block;font-size:10px;font-weight:400;line-height:1.6;margin-top:6px}
+.scheme-calculator-result{border-top:1px solid #dce6f3;padding-top:12px;margin-top:12px}
+.scheme-calculator-result>span{display:block;color:#5b7798;font-size:10px}
+.scheme-calculator-result>strong{display:block;color:#245d91;font-size:24px;font-weight:650;margin:5px 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.scheme-calculator-result>small,.scheme-calculator-footer>small{display:block;color:#7d8fa8;font-size:10px;line-height:1.6;font-weight:400}
+.scheme-calculator-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px}
+.scheme-calculator-footer>button{border:1px solid #d2dfee;background:#fff;border-radius:5px;padding:6px 9px;color:#416891;font-size:10px;white-space:nowrap;min-height:30px}
+.product-price-detail .scheme-calculator{max-width:430px;margin-top:18px}
+.product-price-list .scheme-calculator{min-width:230px;margin-top:0}
 @media(max-width:1000px){.product-price-detail .product-price-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.price-list-heading{flex-direction:column;align-items:stretch;gap:12px}.price-list-heading label{min-width:0}.product-price-detail .product-price-metrics dd{font-size:16px}.catalog-prices{margin-top:10px}.product-price-list .table-scroll{max-height:520px}}

@@ -31,14 +31,13 @@ export default function ProductCatalog({data,onSelect,onAgency,showInsights=true
     <p className="scope-note" hidden={visualSection!=='cover'}>Stock cover = closing units ÷ average daily sales over the three calendar months ending at the selected To month. From month still controls period sales, movement status and agency bars. Stock age remains a separate source observation. Agency bars use only products with complete sales and closing observations; unavailable values stay —. All visuals follow the persistent report filters.</p>
     <section className="panel product-catalog" aria-label="Explore products">
       <div className="catalog-heading"><div><h2>{actionCategories.find(c=>c.key===actionCategory)?.label||momentumCategories.find(c=>c.key===momentumCategory)?.label||liquidityCategories.find(c=>c.key===liquidityCategory)?.label||selectedStatus||'Choose a product'}</h2><p>Open its sales trend, stock trend, momentum and agency comparisons.</p></div><span className="count">{model.visible.length} products</span></div>
-      <div className="product-list">{model.visible.map(p=><button type="button" className="product-card" key={p.key} onClick={()=>onSelect(p.key)}>
+      <div className="product-list">{model.visible.map(p=><article className="product-card" key={p.key}><button type="button" className="product-card-open" aria-label={'Open product analysis for '+p.name} onClick={()=>onSelect(p.key)}>
         <span><strong>{p.name}</strong><small>{[p.brand,p.sku].filter(Boolean).join(' · ')}</small>
           <span className="catalog-liquidity"><LiquidityBadge value={p.liquidity}/><span>{coverDays(p.liquidity.daysOfCover)}</span></span>
           <span className="catalog-signals"><SignalBadge value={p.signal.momentum}/><SignalBadge kind="action" value={p.signal.action}/></span>
           <span className="catalog-metrics"><span>Sold <b>{exact(p.units)}</b></span><span>Stock <b>{exact(p.qoh)}</b></span></span>
-          <ProductPrices compact prices={pricesForSku(data.prices,p.sku)} status={data.priceStatus}/>
         </span><span aria-hidden="true">↗</span>
-      </button>)}</div>{!model.visible.length&&<p className="empty-text">No products match this search and category selection.</p>}
+      </button><ProductPrices compact productName={p.name} prices={pricesForSku(data.prices,p.sku)} status={data.priceStatus}/></article>)}</div>{!model.visible.length&&<p className="empty-text">No products match this search and category selection.</p>}
     </section>
   </section>;
 }
