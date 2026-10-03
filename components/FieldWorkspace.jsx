@@ -5,7 +5,6 @@ import {FIELD_SPEC,QUANTITY_UNITS,indiaToday,DOCTOR_OPTION_COLUMNS,splitSpecialt
 import DoctorDirectory from './DoctorDirectory.jsx';
 import DoctorProfile from './DoctorProfile.jsx';
 import {createFieldSession} from '../lib/field-session.js';
-const sections=[['doctors','Doctors']];
 const names={DOCTORS:'Doctor',DOCTOR_PRODUCTS:'Product link',POB_ACTIVITY:'POB'};
 const titles={Doctor_ID:'Doctor',Pharmacy_ID:'Pharmacy',Product_SKU:'Product',Quantity_Unit:'Quantity unit',Active:'Active'};
 const label=h=>titles[h]||h.replaceAll('_',' ');
@@ -90,14 +89,14 @@ export default function FieldWorkspace({visible,loadRequested=false,refreshVersi
   function selectDoctor(id){doctorOrigin.current=document.activeElement;setDoctorId(id);setScope({product:'',pharmacy:'',start:'',end:''});}
   function closeProfile(){setDoctorId('');requestAnimationFrame(()=>doctorOrigin.current?.focus());}
   return <section className="field-workspace" aria-busy={loading}>
-    <div className="field-workspace-tabs" aria-label="Tracking sections">{sections.map(([key,title])=><button type="button" key={key} aria-pressed={section===key} onClick={()=>setSection(key)}>{title}<span>{key==='doctors'?data.DOCTORS.length:data.POB_ACTIVITY.length}</span></button>)}</div>
     {error&&!editor&&<p className="message error" role="alert">{error}</p>}{notice&&<p className="message" role="status">{notice}</p>}
     <div hidden={section!=='doctors'} className={'field-doctor-layout '+(doctor?'has-profile':'')}>
       <DoctorDirectory data={data} doctorId={doctorId} onSelect={selectDoctor} onAdd={()=>open('DOCTORS')} resetVersion={directoryReset}/>
       {section==='doctors'&&doctor&&<DoctorProfile doctor={doctor} data={data} onClose={closeProfile} onEdit={()=>open('DOCTORS',doctor)} onLink={()=>open('DOCTOR_PRODUCTS')} onPOB={()=>open('POB_ACTIVITY')} onEditLink={r=>open('DOCTOR_PRODUCTS',r)} onHistory={()=>{setScope({product:'',pharmacy:'',start:'',end:''});setSection('POB_ACTIVITY');}} onEditPOB={r=>open('POB_ACTIVITY',r)}/>}
     </div>
     {section==='POB_ACTIVITY'&&<section className="panel field-pob-view">
-      <header className="directory-heading"><div><p className="field-eyebrow">Booking history</p><h2>POBs, in one place.</h2><p>Review booked products, quantities and confirmed supplies.</p></div><button className="field-primary" onClick={()=>open('POB_ACTIVITY')}>+ Record POB</button></header>
+      <div className="profile-topline"><button type="button" className="text-button" onClick={()=>setSection('doctors')}>← Back to {doctor?'doctor':'doctors'}</button></div>
+      <header className="directory-heading"><div><h1>POB history</h1>{doctor&&<p>{doctor.Doctor_Name}</p>}</div><button className="field-primary" onClick={()=>open('POB_ACTIVITY')}>+ Record POB</button></header>
       <div className="field-scope"><label>Doctor<select value={doctorId} onChange={e=>{setDoctorId(e.target.value);setScope(s=>({...s,pharmacy:''}));}}><option value="">All doctors</option>{data.DOCTORS.map(d=><option key={d.Doctor_ID} value={d.Doctor_ID}>{d.Doctor_Name} · {d.Camp}</option>)}</select></label><label>Pharmacy<select disabled={!!doctor} value={doctor?.Pharmacy_ID||scope.pharmacy} onChange={e=>setScope(s=>({...s,pharmacy:e.target.value}))}><option value="">{doctor?'Linked pharmacy':'All pharmacies'}</option>{data.PHARMACIES.map(p=><option key={p.Pharmacy_ID} value={p.Pharmacy_ID}>{p.Pharmacy_Name} · {p.Area} · {p.Camp}</option>)}</select></label><label>Product<select value={scope.product} onChange={e=>setScope(s=>({...s,product:e.target.value}))}><option value="">All products</option>{data.products.map(p=><option key={p.Product_SKU} value={p.Product_SKU}>{p.Product_Name} · {p.Product_SKU}{p.Active?'':' · historical'}</option>)}</select></label><label>From<input type="date" value={scope.start} max={scope.end||undefined} onChange={e=>setScope(s=>({...s,start:e.target.value}))}/></label><label>To<input type="date" value={scope.end} min={scope.start||undefined} onChange={e=>setScope(s=>({...s,end:e.target.value}))}/></label><button className="text-button" onClick={()=>{setDoctorId('');setScope({product:'',pharmacy:'',start:'',end:''});}}>Reset filters</button></div>
       <div className="field-section-heading"><h3>{rows.length} {rows.length===1?'entry':'entries'}</h3><span className="scope-note">Latest bookings first</span></div>
       <DataTable columns={columns} rows={rows} empty="No POBs match this selection. Change the filters or record a new booking."/>
