@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FIELD_SPEC} from '../lib/field-tracking.js';
+import {FIELD_SPEC,FIELD_OPTIONS_HEADERS} from '../lib/field-tracking.js';
 import {createFieldSession,FIELD_SNAPSHOT_KEY} from '../lib/field-session.js';
-function snapshot(name='Doctor One'){const d=Object.fromEntries(Object.keys(FIELD_SPEC).map(k=>[k,[]]));d.DOCTORS=[Object.fromEntries(FIELD_SPEC.DOCTORS.headers.map(h=>[h,h==='Doctor_ID'?'D1':h==='Doctor_Name'?name:'']))];return {...d,products:[{Product_SKU:'P1',Product_Name:'Existing product'}],agencies:['A']};}
+function snapshot(name='Doctor One'){const d=Object.fromEntries(Object.keys(FIELD_SPEC).map(k=>[k,[]]));d.DOCTORS=[Object.fromEntries(FIELD_SPEC.DOCTORS.headers.map(h=>[h,h==='Doctor_ID'?'D1':h==='Doctor_Name'?name:'']))];return {...d,schemaVersion:2,options:Object.fromEntries(FIELD_OPTIONS_HEADERS.map(h=>[h,[]])),products:[{Product_SKU:'P1',Product_Name:'Existing product'}],agencies:['A']};}
 function storage(){const values=new Map();return {getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};}
 const entry=(notes='Saved note')=>Object.fromEntries(FIELD_SPEC.POB_ACTIVITY.headers.map(h=>[h,h==='POB_ID'?'entry-1':h==='Notes'?notes:'']));
 test('a page reload restores doctor data without a new sheet read; only explicit refresh fetches again',async()=>{
@@ -61,4 +61,13 @@ test('saved doctors are immediately cached across reloads without another sheet 
  const store=storage(),session=createFieldSession(async()=>snapshot(),()=>store);await session.load();const record=Object.fromEntries(FIELD_SPEC.DOCTORS.headers.map(h=>[h,h==='Doctor_ID'?'new-doctor':h==='Doctor_Name'?'Created doctor':'']));
  session.saved('DOCTORS',record);session.saved('DOCTORS',{...record,Doctor_Name:'Edited doctor'});
  const cached=await createFieldSession(async()=>{throw Error('Unexpected read');},()=>store).load();assert.equal(cached.DOCTORS.length,2);assert.equal(cached.DOCTORS.find(d=>d.Doctor_ID==='new-doctor').Doctor_Name,'Edited doctor');
+});
+
+test('edited camp and pharmacy persist together across reloads',async()=>{
+ const store=storage(),session=createFieldSession(async()=>snapshot(),()=>store);const original=await session.load();
+ const doctor={...original.DOCTORS[0],Camp:'Jammalamadugu',Pharmacy_ID:'PH-002'};
+ const pharmacy=Object.fromEntries(FIELD_SPEC.PHARMACIES.headers.map(h=>[h,h==='Pharmacy_ID'?'PH-002':h==='Pharmacy_Name'?'Updated pharmacy':'']));
+ session.saved('DOCTORS',doctor,[pharmacy]);
+ const cached=await createFieldSession(()=>{throw Error('Unexpected read');},()=>store).load();
+ assert.equal(cached.DOCTORS[0].Doctor_ID,'D1');assert.equal(cached.DOCTORS[0].Camp,'Jammalamadugu');assert.equal(cached.PHARMACIES.find(p=>p.Pharmacy_ID===cached.DOCTORS[0].Pharmacy_ID).Pharmacy_Name,'Updated pharmacy');
 });

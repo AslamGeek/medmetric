@@ -140,11 +140,14 @@ function saveDoctor_(ss,command,data,today){
   if(!creating&&(!command.previous||spec.headers.some(h=>String(command.previous[h]??'')!==String(original[h]??''))))throw new Error('This doctor changed since you opened the form. Refresh before editing again.');
   const name=command.pharmacyName;
   if(name!==undefined&&(typeof name!=='string'||name.trim().length>2000))throw new Error('Invalid pharmacy name.');
+  if(name!==undefined&&!name.trim())throw new Error('Enter the pharmacy name.');
   let pharmacy,newPharmacy=false;
-  if(original?.Pharmacy_ID){
-    pharmacy=data.PHARMACIES.find(p=>p.Pharmacy_ID===original.Pharmacy_ID);
-    if(!pharmacy)throw new Error('The linked pharmacy is missing from PHARMACIES.');
-    if(name&&normalize(name)!==normalize(pharmacy.Pharmacy_Name))throw new Error('The doctor’s linked pharmacy is fixed after creation.');
+  const currentPharmacy=data.PHARMACIES.find(p=>p.Pharmacy_ID===original?.Pharmacy_ID);
+  if(!creating&&name===undefined){
+    pharmacy=data.PHARMACIES.find(p=>p.Pharmacy_ID===command.record.Pharmacy_ID);
+    if(!pharmacy)throw new Error('Choose an existing pharmacy or enter the pharmacy name.');
+  }else if(currentPharmacy&&normalize(name)===normalize(currentPharmacy.Pharmacy_Name)){
+    pharmacy=currentPharmacy;
   }else{
     if(!name?.trim())throw new Error('Enter the pharmacy name.');
     const matches=data.PHARMACIES.filter(p=>normalize(p.Pharmacy_Name)===normalize(name)&&normalize(p.Area)===normalize(command.record.Area)&&normalize(p.Camp)===normalize(command.record.Camp));
@@ -247,6 +250,8 @@ function doctorCampCode(camp,doctors=[]){
   const name=String(camp||'').trim(),normalized=name.toLowerCase();
   if(!name)throw new Error('Choose a camp before assigning a doctor ID.');
   const configured=Object.entries(CAMP_CODES).find(([key])=>key.toLowerCase()===normalized)?.[1];
+  // An edited camp keeps the doctor's ID, so configured prefixes follow the camp code rather than current membership.
+  if(configured)return configured;
   const prefixes=[...new Set(doctors.filter(d=>String(d.Camp).trim().toLowerCase()===normalized&&/^[A-Z]{2,12}-\d+$/.test(d.Doctor_ID)).map(d=>d.Doctor_ID.split('-')[0]))];
   if(prefixes.length>1)throw new Error('This camp has conflicting doctor ID prefixes. Correct them before adding a doctor.');
   const letters=name.toUpperCase().replace(/[^A-Z]/g,''),consonants=letters.replace(/[AEIOU]/g,'');
@@ -295,8 +300,6 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
   for(const [h,name,idKey] of [['Doctor_ID','DOCTORS','Doctor_ID'],['Pharmacy_ID','PHARMACIES','Pharmacy_ID']])if(!(table==='DOCTORS'&&h==='Doctor_ID')&&record[h]&&!data[name]?.some(r=>r[idKey]===record[h]))throw new Error('Unknown '+h);
   if(table==='DOCTORS'){
     const original=data.DOCTORS.find(d=>d.Doctor_ID===id);
-    if(original?.Pharmacy_ID&&original.Pharmacy_ID!==record.Pharmacy_ID)throw new Error('The doctor’s linked pharmacy is fixed and cannot be changed.');
-    if(original&&original.Camp!==record.Camp)throw new Error('Camp identifies the doctor ID and is fixed after creation.');
     for(const h of ['Area','Camp','Potential'])if(record[h]&&record[h]!==original?.[h]&&!data.options?.[DOCTOR_OPTION_COLUMNS[h]]?.includes(record[h]))throw new Error('Choose '+h.toLowerCase()+' from FIELD_OPTIONS.');
     const specialties=splitSpecialties(record.Specialties),allowed=new Set([...(data.options?.Specialties||[]),...splitSpecialties(original?.Specialties)]);
     if(specialties.some(v=>!allowed.has(v)))throw new Error('Choose specialties from FIELD_OPTIONS.');
@@ -305,9 +308,10 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
     if((!original||identity(original)!==identity(record))&&data.DOCTORS.some(d=>d.Doctor_ID!==id&&identity(d)===identity(record)))throw new Error('A doctor with this name, hospital and camp already exists. Open that doctor to edit.');
   }
   if(record.Doctor_ID&&['DOCTOR_PRODUCTS','POB_ACTIVITY','FOLLOW_UPS','RX_ACTIVITY'].includes(table)){
-    const pharmacy=data.DOCTORS.find(d=>d.Doctor_ID===record.Doctor_ID)?.Pharmacy_ID;
-    if(!pharmacy)throw new Error('This doctor has no linked pharmacy in the doctor master.');
-    if(record.Pharmacy_ID&&record.Pharmacy_ID!==pharmacy)throw new Error('Use the doctor’s fixed linked pharmacy.');
+    const previous=data[table]?.find(r=>r[spec.headers[0]]===id);
+    const pharmacy=previous?.Doctor_ID===record.Doctor_ID&&previous.Pharmacy_ID&&previous.Pharmacy_ID===record.Pharmacy_ID?previous.Pharmacy_ID:data.DOCTORS.find(d=>d.Doctor_ID===record.Doctor_ID)?.Pharmacy_ID;
+    if(!pharmacy)throw new Error('This doctor has no pharmacy in the doctor master.');
+    if(record.Pharmacy_ID&&record.Pharmacy_ID!==pharmacy)throw new Error('Use the pharmacy from the doctor’s details.');
     record.Pharmacy_ID=pharmacy;
   }
   if(record.Product_SKU){
