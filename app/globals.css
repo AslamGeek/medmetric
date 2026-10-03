@@ -105,24 +105,23 @@ fieldset.filters{margin:0;min-width:0}.account-actions{display:flex;align-items:
 .directory-result-count{display:flex;align-items:center;flex-wrap:wrap;gap:9px;padding:17px 0;color:#8694a7;font-size:10px}
 .directory-result-count strong{color:#4e6583;font-size:12px}
 .directory-result-count .text-button{margin-left:auto;padding:0;font-size:10px}
-.doctor-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:13px}
-.doctor-card{display:flex;flex-direction:column;align-items:stretch;min-width:0;border:1px solid #dfe7f1;border-radius:11px;background:#fff;padding:17px;text-align:left;color:#283f5c;transition:background .15s,border-color .15s,box-shadow .15s}
+.doctor-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px}
+.doctor-card{display:flex;flex-direction:column;align-items:stretch;min-width:0;border:1px solid #dfe7f1;border-radius:8px;background:#fff;padding:12px;text-align:left;color:#283f5c;transition:background .15s,border-color .15s,box-shadow .15s}
 .doctor-card:hover:not(:disabled){border-color:#9abbef;background:#f7faff;box-shadow:0 4px 12px #2346720a}
 .doctor-card.selected{border-color:#2866cc;background:#f1f6ff;box-shadow:inset 0 0 0 1px #2866cc}
-.doctor-card-top{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.doctor-avatar{display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;border-radius:12px;background:#eaf0fb;color:#3d6aa7;font-weight:650;font-size:14px;letter-spacing:.4px}
+.doctor-card-top{display:flex;align-items:flex-start;gap:6px;margin-bottom:2px}
 .doctor-status{display:inline-flex;border:1px solid #e0e7ef;border-radius:5px;background:#f1f4f8;color:#72849b;padding:3px 7px;font-size:10px;line-height:1.4;align-self:start}
 .doctor-status.rx{background:#e7f6ef;border-color:#d1ebde;color:#287c59}
-.doctor-card-top .doctor-status{margin-left:auto}.doctor-card-top>svg{width:16px;color:#829aba}
-.doctor-card-name{font-size:14px;font-weight:650;line-height:1.5;overflow-wrap:anywhere}
-.doctor-card-specialty{font-size:11px;color:#567395;margin-top:3px;line-height:1.6;overflow-wrap:anywhere}
-.doctor-card-hospital{font-size:11px;color:#8190a4;margin-top:4px;line-height:1.6;overflow-wrap:anywhere}
-.doctor-card-tags,.profile-meta{display:flex;flex-wrap:wrap;gap:5px;margin:13px 0}
+.doctor-card-top .doctor-status{margin-left:auto;flex-shrink:0;padding:2px 5px;font-size:9px}.doctor-card-top>svg{width:14px;height:18px;flex-shrink:0;color:#829aba}
+.doctor-card-name{min-width:0;flex:1;font-size:13px;font-weight:650;line-height:1.4;overflow-wrap:anywhere}
+.doctor-card-specialty{font-size:11px;color:#567395;margin-top:2px;line-height:1.4;overflow-wrap:anywhere}
+.doctor-card-hospital{font-size:10px;color:#8190a4;margin-top:3px;line-height:1.4;overflow-wrap:anywhere}
+.doctor-card-tags,.profile-meta{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
 .doctor-card-tags>span,.profile-meta>span{background:#f0f4f9;color:#667f9f;border-radius:5px;padding:3px 7px;font-size:10px}
-.doctor-card-pharmacy{display:flex;flex-direction:column;border-top:1px solid #edf1f6;padding-top:12px;margin-top:auto;gap:3px}
+.doctor-card-pharmacy{display:flex;flex-wrap:wrap;align-items:baseline;border-top:1px solid #edf1f6;padding-top:8px;margin-top:auto;gap:4px 6px}
 .doctor-card-pharmacy small{color:#99a6b7;font-size:9px;text-transform:uppercase;letter-spacing:.7px}
 .doctor-card-pharmacy>span{font-size:11px;color:#536c8a;overflow-wrap:anywhere}
-.doctor-card-products{display:flex;flex-wrap:wrap;gap:5px;margin-top:12px}
+.doctor-card-products{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
 .doctor-card-products>span{font-size:9px;background:#edf4ff;color:#5b7eab;border-radius:4px;padding:3px 6px;overflow-wrap:anywhere}
 .doctor-card-products small{font-size:10px;color:#97a3b4}
 .directory-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:48px 20px}
@@ -133,7 +132,6 @@ fieldset.filters{margin:0;min-width:0}.account-actions{display:flex;align-items:
 .profile-topline{margin-bottom:17px;border-bottom:1px solid #edf1f6;padding-bottom:12px}
 .profile-topline .text-button{padding:0;min-height:32px;color:#7388a4;font-size:11px}
 .profile-heading{display:flex;align-items:flex-start;gap:13px}
-.profile-heading .doctor-avatar{width:52px;height:52px;border-radius:14px;font-size:18px}
 .profile-heading>div{min-width:0}.profile-heading h2{margin:7px 0 4px;font-size:21px;letter-spacing:-.4px;overflow-wrap:anywhere;outline:none}
 .profile-heading p,.profile-hospital{margin:0;font-size:12px;color:#7a8aa0;line-height:1.7;overflow-wrap:anywhere}
 .profile-hospital{margin:14px 0 0}

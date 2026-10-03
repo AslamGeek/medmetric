@@ -1,7 +1,6 @@
 'use client';
 import {useEffect,useRef} from 'react';
 import {exact} from './ChartPanel.jsx';
-import {doctorInitials} from './DoctorDirectory.jsx';
 import ProductPrices from './ProductPrices.jsx';
 import {pricesForSku} from '../lib/product-prices.js';
 const date=value=>value?new Date(value+'T12:00:00Z').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Kolkata'}):'Date not recorded';
@@ -13,9 +12,9 @@ export default function DoctorProfile({doctor,data,onClose,onEdit,onLink,onPOB,o
   const productName=sku=>data.products.find(p=>p.Product_SKU===sku)?.Product_Name||sku;
   return <aside className="panel doctor-profile" aria-label="Selected doctor profile">
     <div className="profile-topline"><button className="text-button" onClick={onClose}>← Back to directory</button></div>
-    <header className="profile-heading"><span className="doctor-avatar" aria-hidden="true">{doctorInitials(doctor.Doctor_Name)}</span><div><span className={'doctor-status '+(doctor.Prescriber_Status==='Rx'?'rx':'')}>{doctor.Prescriber_Status||'Unclassified'}</span><h2 ref={heading} tabIndex={-1}>{doctor.Doctor_Name}</h2><p>{doctor.Specialties||'Specialty not specified'}</p></div></header>
+    <header className="profile-heading"><div><span className={'doctor-status '+(doctor.Prescriber_Status==='Rx'?'rx':'')}>{doctor.Prescriber_Status||'Unclassified'}</span><h2 ref={heading} tabIndex={-1}>{doctor.Doctor_Name}</h2><p>{doctor.Specialties||'Specialty not specified'}</p></div></header>
     {doctor.Hospital&&<p className="profile-hospital">{doctor.Hospital}</p>}<div className="profile-meta"><span>{doctor.Doctor_ID}</span>{doctor.Camp&&<span>{doctor.Camp}</span>}{doctor.Area&&<span>{doctor.Area}</span>}{doctor.Potential&&<span>Potential {doctor.Potential}</span>}{doctor.Active==='NO'&&<span>Inactive</span>}</div>
-    <div className="profile-actions"><button className="field-primary" onClick={onLink}>+ Link products</button><button className="field-secondary" onClick={onEdit}>Edit details</button><button className="field-secondary" onClick={onPOB}>+ POB</button></div>
+    <div className="profile-actions"><button className="field-primary" onClick={onPOB}>+ POB</button><button className="field-secondary" onClick={onEdit}>Edit details</button><button className="field-secondary" onClick={onLink}>+ Link products</button></div>
     <div className="profile-pharmacy"><div><p className="field-eyebrow">Linked pharmacy</p><small>Fixed for this doctor</small></div><strong>{pharmacy?.Pharmacy_Name||'Not specified'}</strong>{pharmacy&&<p>{[pharmacy.Area,pharmacy.Camp].filter(Boolean).join(' · ')}</p>}</div>
     <dl className="profile-facts">{[['OP timing',doctor.OP_Timing],['Call schedule',doctor.Call_Schedule],['Stockist',doctor.Stockist],['Latest POB',orders[0]?date(orders[0].Booking_Date):'None recorded']].map(([title,value])=><div key={title}><dt>{title}</dt><dd>{value||'Not specified'}</dd></div>)}</dl>
     {doctor.Notes&&<div className="profile-notes"><h3>Notes</h3><p>{doctor.Notes}</p></div>}
