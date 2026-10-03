@@ -98,6 +98,31 @@ function Invoke-Git {
     }
 }
 
+function Invoke-GitRemote {
+    param([string[]]$GitArgs)
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        # Scope the protocol choice to this publisher; leave the user's Git settings alone.
+        $priorPreference = $ErrorActionPreference
+        try {
+            # Windows PowerShell treats native stderr as ErrorRecords; capture it before deciding whether to retry.
+            $ErrorActionPreference = 'Continue'
+            $output = @(& git --no-pager -c http.version=HTTP/1.1 @GitArgs 2>&1)
+            $remoteExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $priorPreference
+        }
+        foreach ($line in $output) { Write-Host $line.ToString() }
+        if ($remoteExitCode -eq 0) { return }
+        $details = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $temporary = $details -match '(?i)Empty reply from server|Connection reset|Connection timed out|Operation timed out|Could not resolve host|Failed to connect|Recv failure|Send failure|HTTP (?:429|500|502|503|504)|requested URL returned error: (?:429|500|502|503|504)'
+        if (-not $temporary -or $attempt -eq 3) { break }
+        $delay = 2 * $attempt
+        Write-Host ('GitHub connection interrupted. Retrying ' + $GitArgs[0] + ' in ' + $delay + ' seconds (' + ($attempt + 1) + '/3)...') -ForegroundColor Yellow
+        Start-Sleep -Seconds $delay
+    }
+    throw ('Git failed: git ' + ($GitArgs -join ' ') + '. Check the details above. No force push was attempted.')
+}
+
 try {
     Start-Transcript -LiteralPath $logPath -Force | Out-Null
     $transcriptStarted = $true
@@ -148,7 +173,7 @@ try {
     }
 
     Write-Host ('Checking remote branch: ' + $branch)
-    Invoke-Git -GitArgs @('fetch', 'origin')
+    Invoke-GitRemote -GitArgs @('fetch', 'origin')
     & git show-ref --verify --quiet ('refs/remotes/origin/' + $branch)
     if ($LASTEXITCODE -eq 0) {
         # A fast-forward cannot discard history. Git stops if local edits conflict.
@@ -188,7 +213,7 @@ try {
 
     Write-Host ''
     Write-Host 'Pushing to GitHub. Git may open its sign-in prompt on first use.'
-    Invoke-Git -GitArgs @('push', '--set-upstream', 'origin', ('HEAD:refs/heads/' + $branch))
+    Invoke-GitRemote -GitArgs @('push', '--set-upstream', 'origin', ('HEAD:refs/heads/' + $branch))
     Write-Host ''
     Write-Host 'SUCCESS - MedMetric changes are committed and pushed.' -ForegroundColor Green
     $resultCode = 0

@@ -60,19 +60,58 @@ function backendFixture(){
  tables.PRODUCT_CONFIG=[['Your_SKU','Your_Product_Name','Your_Status','Include_In_Charts'],['SYP','Product syrup','ACTIVE','YES'],['DROPS','Product drops','ACTIVE','YES']];
  tables.MONTHLY_TOTALS=[['','','','','','','Agency'],['','','','','','','AGENCY']];
  tables.FIELD_OPTIONS=[FIELD_OPTIONS_HEADERS,...Array.from({length:2},(_,i)=>FIELD_OPTIONS_HEADERS.map(h=>({Areas:d.options.Areas,Camps:d.options.Camps,Specialties:d.options.Specialties,Potentials:d.options.Potentials}[h]||[])[i]||''))];
- const calls={reads:[],writes:0};
+ const calls={reads:[],writes:0,timezones:0,failNextLinkWrite:false};
  const sheet=name=>{
   if(!tables[name])return null;
   const read=(row,col,count,width)=>Array.from({length:count},(_,i)=>Array.from({length:width},(_,j)=>tables[name][row+i-1]?.[col+j-1]??''));
-  const write=(row,col,values)=>{calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}};
+  const write=(row,col,values)=>{if(name==='DOCTOR_PRODUCTS'&&calls.failNextLinkWrite){calls.failNextLinkWrite=false;throw Error('Interrupted product write');}calls.writes++;for(let i=0;i<values.length;i++){tables[name][row+i-1]??=[];for(let j=0;j<values[i].length;j++)tables[name][row+i-1][col+j-1]=values[i][j];}};
   return {getSheetId:()=>({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106,PHARMACY_STOCK_CHECKS:610020104}[name]||1),getLastRow:()=>tables[name].length,getMaxRows:()=>1000,getMaxColumns:()=>Math.max(...tables[name].map(row=>row.length)),insertColumnsAfter:()=>{},hideColumns:()=>{},getRange:(row,col,count=1,width=1)=>({getValue:()=>read(row,col,1,1)[0][0],getDisplayValues:()=>read(row,col,count,width).map(r=>r.map(String)),getValues:()=>{calls.reads.push(name);return read(row,col,count,width);},setValue:value=>write(row,col,[[value]]),setValues:values=>write(row,col,values)})};
  };
  const secret='synthetic-field-secret-12345678901234567890',cache=new Map();
- const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=> 'Etc/GMT',getSheetByName:sheet,deleteSheet:sheet=>{for(const name of ['RX_ACTIVITY','FOLLOW_UPS','TARGETS','PHARMACY_STOCK_CHECKS'])if(tables[name]&&({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106,PHARMACY_STOCK_CHECKS:610020104}[name]===sheet.getSheetId()))delete tables[name];}}),flush:()=>{}}});
+ const context=vm.createContext({Date,Intl,ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})},PropertiesService:{getScriptProperties:()=>({getProperty:()=>secret})},Utilities:{Charset:{UTF_8:'utf8'},computeHmacSha256Signature:(s,k)=>[...createHmac('sha256',k).update(s).digest()],formatDate:(v,tz)=>tz==='Asia/Kolkata'?indiaToday(v):v.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},CacheService:{getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v)})},SpreadsheetApp:{openById:()=>({getSpreadsheetTimeZone:()=>{calls.timezones++;return 'Etc/GMT';},getSheetByName:sheet,deleteSheet:sheet=>{for(const name of ['RX_ACTIVITY','FOLLOW_UPS','TARGETS','PHARMACY_STOCK_CHECKS'])if(tables[name]&&({RX_ACTIVITY:610020103,FOLLOW_UPS:610020105,TARGETS:610020106,PHARMACY_STOCK_CHECKS:610020104}[name]===sheet.getSheetId()))delete tables[name];}}),flush:()=>{}}});
  vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs',import.meta.url),'utf8'),context);
  function call(command){const payload=JSON.stringify({...command,timestamp:Date.now(),nonce:randomUUID()});return context.doPost({postData:{contents:JSON.stringify({payload,signature:createHmac('sha256',secret).update(payload).digest('hex')})}});}
  return {tables,call,calls};
 }
+
+test('retrying a doctor edit after its response is lost confirms the saved edit without another write',()=>{
+ const f=backendFixture();
+ const created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Retry Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
+ const command={action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Saved before timeout'},previous:created.record,pharmacyName:'Original pharmacy'};
+ const committed=f.call(command);assert.equal(committed.ok,true,committed.error);
+ const writes=f.calls.writes,retry=f.call(command);assert.equal(retry.ok,true,retry.error);assert.equal(retry.alreadySaved,true);assert.equal(f.calls.writes,writes);assert.deepEqual(retry.record,committed.record);
+});
+
+test('doctor save reads the spreadsheet timezone once rather than once per cell',()=>{
+ const f=backendFixture();
+ for(let i=0;i<3;i++)f.tables.DOCTORS.push(FIELD_SPEC.DOCTORS.headers.map(h=>h==='Doctor_ID'?'IMPORTED-'+i:h==='OP_Timing'?new Date('2026-10-02T12:00:00Z'):''));
+ const command={action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Fast Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}};
+ const result=f.call(command);assert.equal(result.ok,true,result.error);assert.ok(f.calls.timezones<=1,'Repeated spreadsheet service calls: '+f.calls.timezones);
+});
+
+test('the doctor save connection recovers a lost response and preserves real edit conflicts',async()=>{
+ const f=backendFixture(),created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Transport Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
+ const command={action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Recovered edit'},previous:created.record,pharmacyName:'Original pharmacy'};
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-transport-secret-123456789012345';
+ try{
+  let calls=0;const saved=await fieldBackend(command,async(url,options)=>{calls++;const result=f.call(JSON.parse(JSON.parse(options.body).payload));if(calls===1)throw new DOMException('Lost response','TimeoutError');return Response.json(result);});
+  assert.equal(saved.record.Notes,'Recovered edit');assert.equal(saved.alreadySaved,true);assert.equal(calls,2);
+  calls=0;await assert.rejects(()=>fieldBackend({...command,record:{...command.record,Notes:'A conflicting edit'}},async(url,options)=>{calls++;return Response.json(f.call(JSON.parse(JSON.parse(options.body).payload)));}),/changed since/);assert.equal(calls,1);
+ }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
+
+test('retrying an interrupted Rx edit finishes its products without rewriting or duplicating the doctor',()=>{
+ const f=backendFixture(),created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Interrupted Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
+ const command={action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Prescriber_Status:'Rx'},previous:created.record,pharmacyName:'Original pharmacy',doctorProducts:[{Link_ID:randomUUID(),Product_SKU:'SYP'}]};
+ f.calls.failNextLinkWrite=true;const interrupted=f.call(command);assert.equal(interrupted.ok,false);assert.match(interrupted.error,/Interrupted product write/);
+ const doctors=JSON.stringify(f.tables.DOCTORS),writes=f.calls.writes,retried=f.call(command);assert.equal(retried.ok,true,retried.error);assert.equal(retried.doctorProducts.length,1);assert.equal(JSON.stringify(f.tables.DOCTORS),doctors);assert.equal(f.calls.writes,writes+1);
+ const confirmed=f.call(command);assert.equal(confirmed.ok,true,confirmed.error);assert.equal(f.calls.writes,writes+1);assert.equal(f.tables.DOCTOR_PRODUCTS.length,2);
+});
+
+test('doctor update confirmation still requires the previous record',()=>{
+ const f=backendFixture(),created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Previous Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
+ const writes=f.calls.writes,result=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:created.record,pharmacyName:'Original pharmacy'});assert.equal(result.ok,false);assert.match(result.error,/changed since/);assert.equal(f.calls.writes,writes);
+});
 test('signed backend saves once, retries idempotently and leaves pharmacy stock and revenue untouched',()=>{
  const f=backendFixture(),before=JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),r=({POB_ID:randomUUID(),Booking_Date:'2026-10-02',Doctor_ID:'D1',Pharmacy_ID:'P1',Product_SKU:'SYP',Booked_Units:10,Quantity_Unit:'BOTTLE',Status:'BOOKED'});const first=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(first.ok,true,first.error);const again=f.call({action:'field_save',table:'POB_ACTIVITY',operation:'create',record:r});assert.equal(again.alreadySaved,true);assert.equal(f.tables.POB_ACTIVITY.length,2);assert.equal(JSON.stringify([f.tables.PHARMACY_STOCK_CHECKS,f.tables.MONTHLY_TOTALS]),before);
  const read=f.call({action:'field_read'});assert.equal(read.ok,true,read.error);assert.equal(read.data.POB_ACTIVITY[0].Doctor_ID,'D1');assert.equal(read.data.products.length,2);assert.equal('RX_ACTIVITY' in f.tables,false);assert.equal('FOLLOW_UPS' in f.tables,false);assert.equal('TARGETS' in f.tables,false);assert.equal('PHARMACY_STOCK_CHECKS' in f.tables,false);assert.equal('DOCTOR_PRODUCTS' in f.tables,true);assert.equal('MONTHLY_TOTALS' in f.tables,true);
@@ -118,7 +157,7 @@ test('signed doctor creates retry safely and edits can change camp and pharmacy 
  const f=backendFixture(),record={Doctor_ID:'',Doctor_Name:'New Doctor',Hospital:'Clinic',Specialties:'General',Pharmacy_ID:'',Area:'Area',Camp:'Proddatur',Prescriber_Status:'NRx',Potential:'A',Stockist:'Both',Active:'YES'};
  const command={action:'field_save',table:'DOCTORS',operation:'create',record,requestId:randomUUID(),pharmacyName:'Original pharmacy'};
  const financial=JSON.stringify(f.tables.MONTHLY_TOTALS);f.calls.reads=[];
- const created=f.call(command);assert.equal(created.ok,true,created.error);assert.deepEqual(f.calls.reads,['DOCTORS','PHARMACIES','DOCTOR_PRODUCTS','PRODUCT_CONFIG']);
+ const created=f.call(command);assert.equal(created.ok,true,created.error);assert.deepEqual(f.calls.reads,['DOCTORS','PHARMACIES']);
  const size=f.tables.DOCTORS.length;assert.equal(f.call(command).alreadySaved,true);assert.equal(f.tables.DOCTORS.length,size);
  const duplicate=f.call({...command,requestId:randomUUID()});assert.equal(duplicate.ok,false);assert.match(duplicate.error,/already exists/);assert.equal(f.tables.DOCTORS.length,size);
  const edited=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Updated',Camp:'Jammalamadugu'},pharmacyName:'New pharmacy',previous:created.record});assert.equal(edited.ok,true,edited.error);

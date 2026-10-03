@@ -63,13 +63,15 @@ function removeRetiredTabs_(ss){
 function readPriceList_(ss){
   try{const prices=ss.getSheetByName('PRICE_LIST');return prices?{values:prices.getRange(1,1,Math.max(1,prices.getLastRow()),17).getValues()}:null;}catch(error){return null;}
 }
-function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=true) {
-  const data={};
+function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=true,saveOptions={}) {
+  const data={products:[]},timezone=ss.getSpreadsheetTimeZone()||'Asia/Kolkata';
   for(const name of names){
     const sheet=ss.getSheetByName(name);if(!sheet)throw new Error('Missing '+name+' tab.');
-    const values=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),FIELD_SPEC[name].headers.length).getValues().map(row=>row.map(v=>v instanceof Date?Utilities.formatDate(v,ss.getSpreadsheetTimeZone()||'Asia/Kolkata','yyyy-MM-dd'):v));
+    const rowCount=Math.max(1,sheet.getLastRow()),doctorSave=name==='DOCTORS'&&saveOptions.doctorSave,columnCount=doctorSave?sheet.getMaxColumns():FIELD_SPEC[name].headers.length;
+    const values=sheet.getRange(1,1,rowCount,doctorSave?Math.min(16,columnCount):FIELD_SPEC[name].headers.length).getValues().map(row=>row.map(v=>v instanceof Date?Utilities.formatDate(v,timezone,'yyyy-MM-dd'):v));
     if(!FIELD_SPEC[name].headers.every((header,i)=>String(values[0][i]||'').trim()===header))throw new Error(name+' headers changed. Restore the expected column order before saving.');
-    data[name]=fieldRecords(values,FIELD_SPEC[name].headers,name);
+    data[name]=fieldRecords(values.map(row=>row.slice(0,FIELD_SPEC[name].headers.length)),FIELD_SPEC[name].headers,name);
+    if(doctorSave)data.doctorStorage={rowCount,columnCount,tokenHeader:String(values[0][14]||''),productsHeader:String(values[0][15]||''),rows:values.slice(1).map((r,i)=>({row:i+2,id:r[0],token:r[14],productIntent:r[15]}))};
   }
   if(includeProducts){
   const config=ss.getSheetByName('PRODUCT_CONFIG');
@@ -81,8 +83,10 @@ function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=
   const agencyValues=totals.getRange(1,7,Math.max(1,totals.getLastRow()),1).getValues();
   data.agencies=[...new Set(agencyValues.slice(1).map(r=>String(r[0]||'').trim()).filter(Boolean))].sort();
   }else data.agencies=[];
-  const options=ss.getSheetByName('FIELD_OPTIONS');if(!options)throw new Error('Missing FIELD_OPTIONS tab.');
-  data.options=fieldOptions(options.getRange(1,1,Math.max(1,options.getLastRow()),FIELD_OPTIONS_HEADERS.length).getDisplayValues());
+  if(saveOptions.options!==false){
+    const options=ss.getSheetByName('FIELD_OPTIONS');if(!options)throw new Error('Missing FIELD_OPTIONS tab.');
+    data.options=fieldOptions(options.getRange(1,1,Math.max(1,options.getLastRow()),FIELD_OPTIONS_HEADERS.length).getDisplayValues());
+  }
   data.schemaVersion=2;
   data.capabilities={doctorProducts:true};
   if(names===FIELD_TABLES)data.priceList=readPriceList_(ss);
@@ -91,7 +95,8 @@ function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=
 function saveField_(ss,command) {
   if(!['create','update'].includes(command.operation))throw new Error('Invalid save operation.');
   const spec=FIELD_SPEC[command.table];if(!FIELD_TABLES.includes(command.table)||!spec?.required)throw new Error('This table cannot be edited from the app.');
-  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table,...(command.table==='DOCTORS'?['DOCTOR_PRODUCTS']:[])])],!!command.record?.Agency,true),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+  const doctorSave=command.table==='DOCTORS',needsDoctorLinks=doctorSave&&(command.record?.Prescriber_Status==='Rx'||command.doctorProducts!==undefined);
+  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table,...(needsDoctorLinks?['DOCTOR_PRODUCTS']:[])])],!!command.record?.Agency,!doctorSave||!!command.doctorProducts?.length,{doctorSave,options:doctorSave}),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
   if(command.links!==undefined)return saveLinks_(ss,command,data,today);
   if(command.table==='DOCTORS')return saveDoctor_(ss,command,data,today);
   const record=validateFieldRecord(command.table,command.record,data,today);
@@ -126,18 +131,18 @@ function saveDoctor_(ss,command,data,today){
   const normalize=value=>String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
   if(!command.record||typeof command.record!=='object'||Array.isArray(command.record))throw new Error('Invalid doctor record.');
   if(creating&&(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(command.requestId||'')||command.record.Doctor_ID))throw new Error('Update the app before adding doctors; doctor IDs are assigned when saved.');
-  const tokenHeader=sheet.getMaxColumns()>=15?String(sheet.getRange(1,15).getValue()):'';
+  const storage=data.doctorStorage,tokenHeader=storage.tokenHeader;
   if(tokenHeader&&tokenHeader!=='Create_Request_ID')throw new Error('DOCTORS column O must be reserved for Create_Request_ID.');
-  const productsHeader=sheet.getMaxColumns()>=16?String(sheet.getRange(1,16).getValue()):'';
+  const productsHeader=storage.productsHeader;
   if(productsHeader&&productsHeader!=='Create_Product_Links')throw new Error('DOCTORS column P must be reserved for Create_Product_Links.');
-  const tokens=creating&&tokenHeader&&sheet.getLastRow()>1?sheet.getRange(2,15,sheet.getLastRow()-1,1).getValues():[];
-  const tokenRows=tokens.map((row,i)=>row[0]===command.requestId?i+2:0).filter(Boolean);
+  const tokenRows=creating&&tokenHeader?storage.rows.filter(r=>r.token===command.requestId):[];
   if(tokenRows.length>1)throw new Error('Duplicate doctor create request IDs.');
-  const priorId=tokenRows.length?String(sheet.getRange(tokenRows[0],1).getValue()):command.record.Doctor_ID;
+  const priorId=tokenRows.length?String(tokenRows[0].id):command.record.Doctor_ID;
   const originals=data.DOCTORS.filter(d=>d.Doctor_ID===priorId),original=originals[0];
   if(originals.length>1)throw new Error('Duplicate doctor IDs. Resolve the duplicate before saving.');
   if(!creating&&!original)throw new Error('The doctor no longer exists. Refresh and try again.');
-  if(!creating&&(!command.previous||spec.headers.some(h=>String(command.previous[h]??'')!==String(original[h]??''))))throw new Error('This doctor changed since you opened the form. Refresh before editing again.');
+  if(!creating&&!command.previous)throw new Error('This doctor changed since you opened the form. Refresh before editing again.');
+  const changed=!creating&&spec.headers.some(h=>String(command.previous[h]??'')!==String(original[h]??''));
   const name=command.pharmacyName;
   if(name!==undefined&&(typeof name!=='string'||name.trim().length>2000))throw new Error('Invalid pharmacy name.');
   if(name!==undefined&&!name.trim())throw new Error('Enter the pharmacy name.');
@@ -162,29 +167,37 @@ function saveDoctor_(ss,command,data,today){
   }
   const proposed={...command.record,Doctor_ID:original?.Doctor_ID||nextDoctorId(command.record.Camp,data.DOCTORS),Pharmacy_ID:pharmacy.Pharmacy_ID};
   const record=validateFieldRecord('DOCTORS',proposed,{...data,PHARMACIES:newPharmacy?[...data.PHARMACIES,pharmacy]:data.PHARMACIES},today);
+  const sameDoctor=original&&spec.headers.every(h=>String(original[h]??'')===String(record[h]??''));
+  if(changed&&!sameDoctor)throw new Error('This doctor changed since you opened the form. Refresh before editing again.');
   if(creating&&record.Prescriber_Status==='Rx'&&command.doctorProducts===undefined)throw new Error('Update the app and select prescribed products before creating an Rx doctor.');
   const doctorProducts=command.doctorProducts!==undefined?doctorProductLinks(command.doctorProducts,record,{...data,PHARMACIES:newPharmacy?[...data.PHARMACIES,pharmacy]:data.PHARMACIES},today):[];
   const productIntent=JSON.stringify(doctorProducts.map(r=>({Link_ID:r.Link_ID,Product_SKU:r.Product_SKU})).sort((a,b)=>a.Product_SKU.localeCompare(b.Product_SKU)));
   const newLinks=doctorProducts.filter(r=>!data.DOCTOR_PRODUCTS.some(existing=>existing.Link_ID===r.Link_ID));
   if(creating&&original){
-    if(spec.headers.some(h=>String(original[h]??'')!==String(record[h]??'')))throw new Error('This doctor request already saved with different values. Refresh before editing.');
-    const priorIntent=productsHeader?String(sheet.getRange(tokenRows[0],16).getValue()||''):'';
+    if(!sameDoctor)throw new Error('This doctor request already saved with different values. Refresh before editing.');
+    const priorIntent=productsHeader?String(tokenRows[0].productIntent||''):'';
     if(priorIntent&&priorIntent!==productIntent)throw new Error('This doctor request already saved with a different product selection. Retry unchanged or refresh before editing.');
     appendLinkRecords_(ss,newLinks);
     return {ok:true,record:original,pharmacies:[pharmacy],doctorProducts,alreadySaved:true};
   }
+  // A response may be lost after the doctor row commits. Confirm the identical edit and finish any missing links.
+  if(!creating&&sameDoctor){
+    appendLinkRecords_(ss,newLinks);
+    return {ok:true,record:original,pharmacies:[pharmacy],doctorProducts,alreadySaved:true};
+  }
   // Validate the complete doctor before making any writes. Reuse the pharmacy if a prior save was interrupted.
-  if(sheet.getMaxColumns()<16)sheet.insertColumnsAfter(sheet.getMaxColumns(),16-sheet.getMaxColumns());
-  if(!tokenHeader){sheet.getRange(1,15).setValue('Create_Request_ID');sheet.hideColumns(15);}
-  if(!productsHeader){sheet.getRange(1,16).setValue('Create_Product_Links');sheet.hideColumns(16);}
+  if(creating){
+    if(storage.columnCount<16)sheet.insertColumnsAfter(storage.columnCount,16-storage.columnCount);
+    if(!tokenHeader){sheet.getRange(1,15).setValue('Create_Request_ID');sheet.hideColumns(15);}
+    if(!productsHeader){sheet.getRange(1,16).setValue('Create_Product_Links');sheet.hideColumns(16);}
+  }
   if(newPharmacy){
     const pharmacies=ss.getSheetByName('PHARMACIES'),row=pharmacies.getLastRow()+1;
     if(row>pharmacies.getMaxRows())pharmacies.insertRowsAfter(pharmacies.getMaxRows(),100);
     pharmacies.getRange(row,1,1,FIELD_SPEC.PHARMACIES.headers.length).setValues([FIELD_SPEC.PHARMACIES.headers.map(h=>safeCell_(pharmacy[h]))]);
-    SpreadsheetApp.flush();
   }
-  const row=creating?sheet.getLastRow()+1:sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues().findIndex(r=>r[0]===record.Doctor_ID)+2;
-  if(row<2)throw new Error('Doctor ID was not found.');
+  const row=creating?storage.rowCount+1:storage.rows.find(r=>r.id===record.Doctor_ID)?.row;
+  if(!row||row<2)throw new Error('Doctor ID was not found.');
   if(row>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),100);
   const values=spec.headers.map(h=>safeCell_(record[h]));
   if(creating)values.push(command.requestId,productIntent);
