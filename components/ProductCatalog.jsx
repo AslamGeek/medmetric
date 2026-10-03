@@ -9,7 +9,7 @@ import {productPrescribers} from '../lib/doctor-directory.js';
 import ProductPrices,{ProductPriceList} from './ProductPrices.jsx';
 import {pricesForSku} from '../lib/product-prices.js';
 
-export default function ProductCatalog({data,fieldSnapshot,onRefreshDoctors,onSelect,insightView='sales',onInsightViewChange,openProductsRequest=0,showInsights=true}) {
+export default function ProductCatalog({data,fieldSnapshot,onRefreshDoctors,onSelect,rankingView='sales',onRankingViewChange,openProductsRequest=0}) {
   const [search,setSearch]=useState(''),[status,setStatus]=useState('all'),[liquidityCategory,setLiquidityCategory]=useState('all');
   const [visualSection,setVisualSection]=useState('products');
   useEffect(()=>{setVisualSection('products');},[openProductsRequest]);
@@ -26,7 +26,7 @@ export default function ProductCatalog({data,fieldSnapshot,onRefreshDoctors,onSe
     <div hidden={visualSection!=='products'}>
       <div className="explorer-toolbar"><label>Find a product<input type="search" placeholder="Search name, SKU or brand" value={search} onChange={e=>setSearch(e.target.value)}/></label><label>Movement status<select value={status} onChange={e=>setStatus(e.target.value)}><option value="all">All products</option>{productStatuses.map(item=><option key={item.key} value={item.key}>{item.label}</option>)}</select></label><button className="text-button" onClick={()=>{setSearch('');setStatus('all');setLiquidityCategory('all');}}>Reset explorer</button></div>
       <div className="explorer-cover-filters"><div><strong>Stock cover</strong><span>{baseline} sales pace · stock at {monthLabel(f.end)}</span></div><div className="explorer-cover-chips" role="group" aria-label="Filter by stock cover"><button type="button" aria-pressed={liquidityCategory==='all'} onClick={()=>setLiquidityCategory('all')}>All <b>{model.liquidityMix.reduce((total,row)=>total+row.count,0)}</b></button>{model.liquidityMix.filter(row=>row.count>0||row.key===liquidityCategory).map(row=><button type="button" key={row.key} aria-pressed={liquidityCategory===row.key} title={row.range} onClick={()=>setLiquidityCategory(liquidityCategory===row.key?'all':row.key)}><i style={{background:row.color}} aria-hidden="true"/>{row.label} <b>{row.count}</b></button>)}</div></div>
-      <ProductRankings data={data} analysis={analysis} mode={insightView} onModeChange={onInsightViewChange} onSelect={onSelect} showInsights={showInsights}/>
+      <ProductRankings data={data} analysis={analysis} mode={rankingView} onModeChange={onRankingViewChange} onSelect={onSelect}/>
     <section className="panel product-catalog" aria-label="Explore products">
       <div className="catalog-heading"><div><h2>{liquidityCategories.find(c=>c.key===liquidityCategory)?.label||selectedStatus||'Choose a product'}</h2><p>Open monthly sales, stock and prices.</p></div><span className="count">{model.visible.length} products</span></div>
       {fieldSnapshot?.error&&<p className="message error" role="alert">{fieldSnapshot.data?'Could not refresh prescribing doctors. Saved names are still shown.':'Prescribing doctors are unavailable.'} <button type="button" className="text-button" disabled={fieldSnapshot.loading} onClick={onRefreshDoctors}>Retry loading doctors</button></p>}

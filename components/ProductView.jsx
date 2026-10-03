@@ -13,7 +13,7 @@ function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,sh
   })}</ul><span className="kpi-line primary-line"/></article>;
 }
 
-export default function ProductView({data,onSource,onAgency,showInsights=true}) {
+export default function ProductView({data,onSource,onAgency}) {
   const product=data.productDetail, monthly=product.monthly, f=data.filters;
   const labels=monthly.months.map(monthLabel);
   const liquidity=data.liquidity.products.find(row=>row.key===product.key);
@@ -59,7 +59,6 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
         interactionHint="Select a bar or stock point to inspect that agency’s source rows. Missing observations remain gaps."
         columns={monthlyColumns} rows={monthly.months.map((month,index)=>({month,index}))}/>
     </section>
-    {showInsights&&<section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>}
     <div className="product-source-actions"><button className="text-button" onClick={()=>onSource({productKey:product.key})}>View source rows ↗</button></div>
   </section>;
 }
