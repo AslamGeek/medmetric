@@ -6,6 +6,8 @@ import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage } from './ChartPanel.jsx';
 import {SignalBadge} from './ProductSignals.jsx';
 import {actionCategories} from '../lib/product-signals.js';
+import ProductPrices from './ProductPrices.jsx';
+import {pricesForSku} from '../lib/product-prices.js';
 
 function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,shareKey,formatValue,formatTotal,reason}) {
   return <article className="kpi product-metric"><p>{label}<span>{unit}</span></p><strong title={formatValue(value)}>{(formatTotal||formatValue)(value)}</strong><small>{note}</small>{value==null&&reason&&<div className="metric-explanation">{reason}</div>}<ul className="metric-agencies">{agencies.map(a=>{
@@ -41,6 +43,7 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
       <article><h2>Sales momentum <SignalBadge value={signal.momentum}/></h2><strong>{percentage(signal.growth)}</strong><p>Daily sales pace · {data.signals.recentMonths.map(monthLabel).join(' → ')} vs {data.signals.previousMonths.map(monthLabel).join(' → ')}</p><p>{exact(signal.previous.units)} previous units → {exact(signal.recent.units)} recent units · {signal.momentumReason||'Compared using six full calendar months and daily sales pace.'}</p></article>
       <article><h2>Review priority</h2><SignalBadge kind="action" value={signal.action}/><p>{actionCategories.find(row=>row.key===signal.action)?.rule}.</p><p>Stock observed in {monthLabel(f.end)}. Review stock availability and supply timing before taking action.</p></article>
     </section>}
+    <ProductPrices prices={pricesForSku(data.prices,product.sku)} status={data.priceStatus}/>
     <nav className="product-report-tabs" aria-label="Product analysis views">{[['analysis','Analysis & charts'],['agencies','Agency comparison']].map(([key,label])=><button type="button" key={key} aria-pressed={section===key} onClick={()=>setSection(key)}>{label}</button>)}</nav>
     <div hidden={section!=='analysis'}><div className="section-heading"><h2>Product performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
     <section className="kpi-grid" aria-label="Product metrics">{[

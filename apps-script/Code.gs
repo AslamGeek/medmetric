@@ -42,7 +42,9 @@ function doPost(e) {
       const values=sheet.getRange(1,1,Math.max(1,sheet.getLastRow()),width).getValues().map(row=>row.map(value=>value instanceof Date ? Utilities.formatDate(value,timezone,'yyyy-MM-dd') : value));
       return {values};
     });
-    return reply_({ok:true,valueRanges});
+    // Prices are auxiliary reference data. A missing price tab must not prevent sales reads.
+    const priceList=readPriceList_(ss);
+    return reply_({ok:true,valueRanges,priceList});
   } catch(error) { return reply_({ok:false,error:'Unable to read source spreadsheet'}); }
 }
 // User-requested cleanup runs only after the current tables have been read successfully.
@@ -57,6 +59,9 @@ function removeRetiredTabs_(ss){
     }
     cache.put('retired-tabs-cleaned-v2','done',21600);
   }finally{lock.releaseLock();}
+}
+function readPriceList_(ss){
+  try{const prices=ss.getSheetByName('PRICE_LIST');return prices?{values:prices.getRange(1,1,Math.max(1,prices.getLastRow()),17).getValues()}:null;}catch(error){return null;}
 }
 function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=true) {
   const data={};
@@ -79,6 +84,7 @@ function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=
   const options=ss.getSheetByName('FIELD_OPTIONS');if(!options)throw new Error('Missing FIELD_OPTIONS tab.');
   data.options=fieldOptions(options.getRange(1,1,Math.max(1,options.getLastRow()),FIELD_OPTIONS_HEADERS.length).getDisplayValues());
   data.schemaVersion=2;
+  if(names===FIELD_TABLES)data.priceList=readPriceList_(ss);
   return data;
 }
 function saveField_(ss,command) {
