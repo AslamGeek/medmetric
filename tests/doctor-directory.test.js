@@ -33,6 +33,19 @@ test('saved selections no longer present remain visible with zero matches and ca
  assert.equal(doctorDirectory(data(),{filters:emptyDoctorFilters()}).doctors.length,3);
 });
 
+test('call schedule and manually chosen camps combine with other filters and can change immediately',()=>{
+ const d=data();d.DOCTORS[0].Call_Schedule='Monday';d.DOCTORS[1].Call_Schedule='Monday';d.DOCTORS[2].Call_Schedule='Tuesday';
+ const filters={...emptyDoctorFilters(),Call_Schedule:['Monday'],Camp:['North']};
+ assert.deepEqual(doctorDirectory(d,{filters}).doctors.map(doctor=>doctor.Doctor_ID),['D1']);
+ assert.deepEqual(doctorDirectory(d,{filters:{...filters,Camp:['South']}}).doctors.map(doctor=>doctor.Doctor_ID),['D2']);
+ assert.deepEqual(doctorDirectory(d,{filters:{...filters,Camp:['North','South']}}).doctors.map(doctor=>doctor.Doctor_ID),['D1','D2']);
+ assert.deepEqual(doctorDirectory(d,{filters:{...filters,Camp:[],Call_Schedule:['Tuesday']}}).doctors.map(doctor=>doctor.Doctor_ID),['D3']);
+ assert.equal(doctorDirectory(d,{filters:{...filters,Call_Schedule:[]}}).doctors.length,2);
+ const result=doctorDirectory(d,{filters:{...filters,Prescriber_Status:['Rx']}});
+ assert.deepEqual(result.groups.find(group=>group.field==='Camp').items.map(item=>[item.value,item.count]),[['North',1],['South',0]]);
+ assert.deepEqual(result.groups.find(group=>group.field==='Call_Schedule').items.map(item=>[item.value,item.count]),[['Monday',1],['Tuesday',1]]);
+});
+
 test('product prescribers use active Existing links, deduplicate doctor IDs and match exact SKUs',()=>{
  const d=data();
  d.DOCTOR_PRODUCTS=d.DOCTOR_PRODUCTS.map(link=>({...link,Relationship:'EXISTING'}));
