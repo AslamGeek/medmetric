@@ -5,7 +5,7 @@ import {FIELD_SPEC,QUANTITY_UNITS,indiaToday,DOCTOR_OPTION_COLUMNS,splitSpecialt
 import DoctorDirectory from './DoctorDirectory.jsx';
 import DoctorProfile from './DoctorProfile.jsx';
 import {createFieldSession} from '../lib/field-session.js';
-const sections=[['doctors','Doctors'],['POB_ACTIVITY','POBs']];
+const sections=[['doctors','Doctors']];
 const names={DOCTORS:'Doctor',DOCTOR_PRODUCTS:'Product link',POB_ACTIVITY:'POB'};
 const titles={Doctor_ID:'Doctor',Pharmacy_ID:'Pharmacy',Product_SKU:'Product',Quantity_Unit:'Quantity unit',Active:'Active'};
 const label=h=>titles[h]||h.replaceAll('_',' ');
@@ -16,8 +16,9 @@ const formGroups={
   POB_ACTIVITY:[['Doctor & pharmacy','Select the source of this booking.',['Doctor_ID','Pharmacy_ID','Agency']],['Booking','Record the product, quantity and booking date.',['Product_SKU','Booked_Units','Quantity_Unit','Booking_Date']],['Supply','Record supplied quantities when they are confirmed.',['Status','Fulfilled_Units','Fulfilled_Date']],['Notes','Keep any useful booking details here.',['Notes']]]
 };
 async function request(body){const response=await fetch('/api/fields',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',signal:AbortSignal.timeout(60000)});let result;try{result=await response.json();}catch{throw new Error('The field-data connection returned an invalid response. Your entry is kept in the form.');}if(!response.ok)throw new Error(result.error||'Could not load field data.');return result;}
-export default function FieldWorkspace({visible,refreshVersion,onLoadingChange}){
+export default function FieldWorkspace({visible,loadRequested=false,refreshVersion,onLoadingChange,onSnapshotChange}){
   const [data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const [readError,setReadError]=useState('');
   const [section,setSection]=useState('doctors'),[doctorId,setDoctorId]=useState(''),[directoryReset,setDirectoryReset]=useState(0);
   const [scope,setScope]=useState({product:'',pharmacy:'',start:'',end:''});
   const [links,setLinks]=useState([]),[productSearch,setProductSearch]=useState('');
@@ -25,7 +26,8 @@ export default function FieldWorkspace({visible,refreshVersion,onLoadingChange})
   const [pharmacyName,setPharmacyName]=useState('');
   const [session]=useState(()=>createFieldSession(force=>request({action:'read',force}).then(r=>r.data),()=>localStorage));
   const loadedVersion=useRef(-1),readEpoch=useRef(0),editorElement=useRef(null),editorOrigin=useRef(null),editorInitial=useRef(''),doctorOrigin=useRef(null),today=indiaToday();
-  useEffect(()=>{if(!visible||loadedVersion.current===refreshVersion)return;loadedVersion.current=refreshVersion;const epoch=++readEpoch.current;setError('');if(refreshVersion===0){const cached=session.restore();if(cached){setData(cached);setLoading(false);return;}}setLoading(true);session.load(refreshVersion>0).then(value=>{if(epoch===readEpoch.current){setData(value);setNotice('');}}).catch(e=>{if(epoch===readEpoch.current)setError('Refresh failed; the previous saved data is still shown. '+e.message);}).finally(()=>{if(epoch===readEpoch.current)setLoading(false);});},[visible,refreshVersion,session]);
+  useEffect(()=>{if((!visible&&!loadRequested)||loadedVersion.current===refreshVersion)return;loadedVersion.current=refreshVersion;const epoch=++readEpoch.current;setError('');setReadError('');if(refreshVersion===0){const cached=session.restore();if(cached){setData(cached);setLoading(false);return;}}setLoading(true);session.load(refreshVersion>0).then(value=>{if(epoch===readEpoch.current){setData(value);setNotice('');}}).catch(e=>{if(epoch===readEpoch.current){setReadError(e.message);setError('Refresh failed; the previous saved data is still shown. '+e.message);}}).finally(()=>{if(epoch===readEpoch.current)setLoading(false);});},[visible,loadRequested,refreshVersion,session]);
+  useEffect(()=>{onSnapshotChange?.({data,loading,error:readError});},[data,loading,readError,onSnapshotChange]);
   useEffect(()=>{onLoadingChange?.(visible&&loading);},[visible,loading,onLoadingChange]);
   useEffect(()=>{if(editor)editorElement.current?.querySelector('input,select,textarea')?.focus();else editorOrigin.current?.focus();},[editor]);
   function open(table,existing){const spec=FIELD_SPEC[table],r=Object.fromEntries(spec.headers.map(h=>[h,existing?.[h]??'']));r[spec.headers[0]]=existing?.[spec.headers[0]]||(table==='DOCTORS'?'':crypto.randomUUID());
@@ -45,7 +47,7 @@ export default function FieldWorkspace({visible,refreshVersion,onLoadingChange})
     if(editor.table==='DOCTORS'){setDoctorId(result.record.Doctor_ID);setScope({product:'',pharmacy:'',start:'',end:''});setDirectoryReset(v=>v+1);}setEditor(null);
   }catch(e){setError(e.message);}finally{setSaving(false);}}
   if(!visible)return null;
-  if(!data)return <section className="panel field-workspace"><h2>Doctor &amp; pharmacy workspace</h2><p role="status">{loading?'Loading doctors, pharmacies and your activity logs…':'Tracking data has not loaded.'}</p>{error&&<p className="message error" role="alert">{error}</p>}<button className="button" disabled={loading} onClick={()=>{loadedVersion.current=refreshVersion;const epoch=++readEpoch.current;setLoading(true);setError('');session.load(true).then(value=>{if(epoch===readEpoch.current)setData(value);}).catch(e=>{if(epoch===readEpoch.current)setError('Refresh failed; the previous saved data is still shown. '+e.message);}).finally(()=>{if(epoch===readEpoch.current)setLoading(false);});}}>Retry connection</button></section>;
+  if(!data)return <section className="panel field-workspace"><h2>Doctor &amp; pharmacy workspace</h2><p role="status">{loading?'Loading doctors, pharmacies and your activity logs…':'Tracking data has not loaded.'}</p>{error&&<p className="message error" role="alert">{error}</p>}<button className="button" disabled={loading} onClick={()=>{loadedVersion.current=refreshVersion;const epoch=++readEpoch.current;setLoading(true);setError('');setReadError('');session.load(true).then(value=>{if(epoch===readEpoch.current)setData(value);}).catch(e=>{if(epoch===readEpoch.current){setReadError(e.message);setError('Refresh failed; the previous saved data is still shown. '+e.message);}}).finally(()=>{if(epoch===readEpoch.current)setLoading(false);});}}>Retry connection</button></section>;
   const doctor=data.DOCTORS.find(d=>d.Doctor_ID===doctorId);
   const rxDoctor=editor?.table==='DOCTORS'&&record.Prescriber_Status==='Rx';
   const alreadyPrescribed=rxDoctor?data.DOCTOR_PRODUCTS.filter(l=>l.Doctor_ID===record.Doctor_ID&&l.Relationship==='EXISTING'&&l.Active==='YES'):[];

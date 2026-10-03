@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {doctorDirectory,emptyDoctorFilters} from '../lib/doctor-directory.js';
+import {doctorDirectory,emptyDoctorFilters,productPrescribers} from '../lib/doctor-directory.js';
 const data=()=>({DOCTORS:[
   {Doctor_ID:'D1',Doctor_Name:'Dr Arun',Camp:'North',Area:'Hill',Specialties:'General; Pediatrics',Hospital:'Hospital One',Pharmacy_ID:'P1',Prescriber_Status:'Rx',Potential:'B',Active:'YES'},
   {Doctor_ID:'D2',Doctor_Name:'Dr Bala',Camp:'South',Area:'Lake',Specialties:'General',Hospital:'Hospital Two',Pharmacy_ID:'P2',Prescriber_Status:'NRx',Potential:'A',Active:'YES'},
@@ -31,4 +31,29 @@ test('metrics and sorting use the selected directory subset; unknown potential f
 test('saved selections no longer present remain visible with zero matches and can be cleared',()=>{
  const result=doctorDirectory(data(),{filters:{Camp:['Old camp']}});assert.equal(result.doctors.length,0);assert.equal(result.groups.find(g=>g.field==='Camp').items.find(i=>i.value==='Old camp').count,0);
  assert.equal(doctorDirectory(data(),{filters:emptyDoctorFilters()}).doctors.length,3);
+});
+
+test('product prescribers use active Existing links, deduplicate doctor IDs and match exact SKUs',()=>{
+ const d=data();
+ d.DOCTOR_PRODUCTS=d.DOCTOR_PRODUCTS.map(link=>({...link,Relationship:'EXISTING'}));
+ d.DOCTOR_PRODUCTS.push(
+  {Doctor_ID:'D2',Product_SKU:'SKU-A',Active:'YES',Relationship:'DISCUSSION'},
+  {Doctor_ID:'D3',Product_SKU:'SKU-A',Active:'YES',Relationship:'EXISTING'},
+  {Doctor_ID:'missing',Product_SKU:'SKU-A',Active:'YES',Relationship:'EXISTING'},
+  {Doctor_ID:'D1',Product_SKU:'SKU-B',Active:'NO',Relationship:'EXISTING'}
+ );
+ d.products[1].Product_Name=d.products[0].Product_Name;
+ const result=productPrescribers(d);
+ assert.deepEqual(result.get('SKU-A').map(doctor=>doctor.Doctor_ID),['D1']);
+ assert.deepEqual(result.get('SKU-B').map(doctor=>doctor.Doctor_ID),['D2']);
+ assert.equal(result.has('unmapped'),false);
+ assert.equal(productPrescribers(null).size,0);
+});
+
+test('product prescribers reflect saved link changes and preserve distinct doctors with the same name',()=>{
+ const d=data();d.DOCTORS[1].Doctor_Name=d.DOCTORS[0].Doctor_Name;
+ d.DOCTOR_PRODUCTS=[{Doctor_ID:'D2',Product_SKU:'SKU-A',Active:'YES',Relationship:'EXISTING'},{Doctor_ID:'D1',Product_SKU:'SKU-A',Active:'YES',Relationship:'EXISTING'}];
+ assert.deepEqual(productPrescribers(d).get('SKU-A').map(doctor=>doctor.Doctor_ID),['D1','D2']);
+ d.DOCTOR_PRODUCTS[0].Active='NO';
+ assert.deepEqual(productPrescribers(d).get('SKU-A').map(doctor=>doctor.Doctor_ID),['D1']);
 });

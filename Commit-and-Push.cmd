@@ -5,6 +5,12 @@ set "MEDMETRIC_PUBLISHER=%~f0"
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$text = [IO.File]::ReadAllText($env:MEDMETRIC_PUBLISHER); $payload = ($text -split '(?m)^# POWERSHELL_PAYLOAD\r?$', 2)[1]; & ([ScriptBlock]::Create($payload))"
 set "PUBLISH_EXIT=%ERRORLEVEL%"
 echo.
+if not "%PUBLISH_EXIT%"=="0" (
+    echo Publishing failed. Details are saved in MedMetric-publish.log.
+    echo Press any key to close this window.
+    pause >nul
+    exit /b %PUBLISH_EXIT%
+)
 echo Closing in 3 seconds. Details are saved in MedMetric-publish.log.
 timeout /t 3 /nobreak >nul 2>&1
 exit /b %PUBLISH_EXIT%
@@ -27,7 +33,6 @@ $appFiles = @(
     'app/page.jsx',
     'app/globals.css',
     'app/daily-reports.css',
-    'app/product-signals.css',
     'app/product-prices.css',
     'app/api/config/route.js',
     'app/api/dashboard/route.js',
@@ -42,7 +47,6 @@ $appFiles = @(
     'components/ChartPanel.jsx',
     'components/ProductView.jsx',
     'components/ProductCatalog.jsx',
-    'components/ProductSignals.jsx',
     'components/ProductPrices.jsx',
     'components/ProductRankings.jsx',
     'components/ReportFilters.jsx',
@@ -52,7 +56,6 @@ $appFiles = @(
     'lib/chart-scales.js',
     'lib/product-rankings.js',
     'lib/product-explorer.js',
-    'lib/product-signals.js',
     'lib/product-prices.js',
     'lib/product-liquidity.js',
     'lib/report-filters.js',
@@ -77,17 +80,19 @@ $appFiles = @(
     'tests/product-explorer.test.js',
     'tests/product-liquidity.test.js',
     'tests/report-filters.test.js',
+    'tests/publisher.test.js',
     'apps-script/Code.gs',
     'apps-script/appsscript.json'
 )
 $publishFiles = $appFiles + @('Commit-and-Push.cmd')
-$legacyFiles = @('Code.gs', 'Index.html', 'Scripts.html', 'Styles.html', 'appsscript.json')
+$legacyFiles = @('Code.gs', 'Index.html', 'Scripts.html', 'Styles.html', 'appsscript.json', 'app/product-signals.css', 'components/ProductSignals.jsx', 'lib/product-signals.js')
 $transcriptStarted = $false
 $resultCode = 1
 
 function Invoke-Git {
     param([string[]]$GitArgs)
-    & git @GitArgs
+    # A double-clicked console must not stop in Git's interactive diff pager.
+    & git --no-pager @GitArgs
     if ($LASTEXITCODE -ne 0) {
         throw ('Git failed: git ' + ($GitArgs -join ' ') + '. Check the details above. No force push was attempted.')
     }
