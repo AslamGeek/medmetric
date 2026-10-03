@@ -1,7 +1,6 @@
 'use client';
 import LiquidityBadge,{coverDays} from './LiquidityBadge.jsx';
 import {displayCoverage} from '../lib/analytics.js';
-import {useState} from 'react';
 import { sharedValueRange } from '../lib/chart-scales.js';
 import ChartPanel, { compact, exact, monthLabel, percentage } from './ChartPanel.jsx';
 import ProductPrices from './ProductPrices.jsx';
@@ -15,7 +14,6 @@ function MetricCard({label,value,unit,note,agencies,onAgency,colors,readValue,sh
 }
 
 export default function ProductView({data,onSource,onAgency,showInsights=true}) {
-  const [section,setSection]=useState('analysis');
   const product=data.productDetail, monthly=product.monthly, f=data.filters;
   const labels=monthly.months.map(monthLabel);
   const liquidity=data.liquidity.products.find(row=>row.key===product.key);
@@ -30,12 +28,19 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
   const monthlyNotes=monthly.months.map((_,i)=>displayCoverage(monthly.agencies.map(series=>series.agency+': '+series.rows[i].coverage).join(' · ')));
   const noteColumns=monthlyNotes.some(Boolean)?[{label:'Data note',render:row=>monthlyNotes[row.index]||'—'}]:[];
   const monthlyColumns=[{label:'Month',render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month})}>{monthLabel(r.month)}</button>},...[['Restocked units','purchased'],['Sold units','units']].map(([label,key])=>({label,numeric:true,render:r=>exact(r[key])}))];
+  const restockingDatasets=monthly.agencies.flatMap(series=>[
+    {label:series.agency+' · Restocked',data:series.rows.map(row=>row.purchased),color:agencyColor(series.agency)+'80'},
+    {label:series.agency+' · Sold',data:series.rows.map(row=>row.units),color:agencyColor(series.agency)}
+  ]);
+  const restockingColumns=[monthlyColumns[0],...monthly.agencies.flatMap(series=>[['Restocked','purchased'],['Sold','units']].map(([label,key])=>({
+    label:series.agency+' · '+label,numeric:true,render:row=>series.rows[row.index][key]==null?'—':<button type="button" onClick={()=>onSource({productKey:product.key,month:row.month,agency:series.agency})}>{exact(series.rows[row.index][key])}</button>
+  }))),...noteColumns];
   const agencyColumns=[{label:'Agency',render:r=><button type="button" onClick={()=>onAgency(r.agency)}>{r.agency}</button>},
     ...[['Units sold','units',false],['Units received','purchased',false],['Closing units','qoh',false],['Stock value ₹','value',true]].map(([label,key,currency])=>({label,numeric:true,render:r=>exact(r[key],currency)})),
     {label:'Latest month vs prior',numeric:true,render:r=>r.growth==null?'—':<span className={r.growth<0?'negative':'positive'}>{percentage(r.growth)}</span>}];
   return <section id="product-detail" aria-label={`${product.name} product analysis`}>
-    <nav className="product-report-tabs" aria-label="Product analysis views">{[['analysis','Analysis & charts'],['agencies','Agency comparison']].map(([key,label])=><button type="button" key={key} aria-pressed={section===key} onClick={()=>setSection(key)}>{label}</button>)}</nav>
-    <div hidden={section!=='analysis'}><div className="section-heading"><h2>Performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
+    <ProductPrices productName={product.name} prices={pricesForSku(data.prices,product.sku)} status={data.priceStatus}/>
+    <div className="section-heading"><h2>Performance</h2><span className="period-label">{f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end)} · {f.agency||'All agencies'}</span></div>
     <section className="kpi-grid" aria-label="Product metrics">{[
       ['Units sold','units',false,'Selected period'],['Units restocked','purchased',false,'Selected period'],
       ['Closing stock','qoh',false,'Units remaining · '+monthLabel(f.end)],['Stock value','value',true,'Closing inventory · '+monthLabel(f.end)]
@@ -53,11 +58,11 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
     </section>
     <section className="product-restocking" aria-labelledby="product-restocking-title">
       <div className="section-heading"><h2 id="product-restocking-title">Monthly restocked vs sold</h2><span className="period-label">{labels[0]||'—'} – {labels.at(-1)||'—'}</span></div>
-      <div className="chart-grid product-monthly-charts">
-        {monthly.agencies.map(series=><ChartPanel key={series.agency} title={series.agency} subtitle="Monthly units · restocked vs sold · common scale across agencies" type="bar" unit="Units" labels={labels} valueRange={valueRange} takeaway={showInsights?series.takeaway:null} coverage={series.rows.map(r=>r.coverage)}
-          datasets={[{label:'Restocked',data:series.rows.map(r=>r.purchased),color:'#3489e0'},{label:'Sold',data:series.rows.map(r=>r.units),color:'#e65722'}]}
-          onPoint={i=>onSource({productKey:product.key,month:monthly.months[i],agency:series.agency})} interactionHint="Select a month to inspect this agency’s source rows. Missing observations appear as gaps or —."
-          columns={[{...monthlyColumns[0],render:r=><button type="button" onClick={()=>onSource({productKey:product.key,month:r.month,agency:series.agency})}>{monthLabel(r.month)}</button>},...monthlyColumns.slice(1),...(series.rows.some(row=>displayCoverage(row.coverage))?[{label:'Data note',render:row=>displayCoverage(row.coverage)||'—'}]:[])]} rows={series.rows}/>)}
+      <div className="product-monthly-charts">
+        <ChartPanel title="Restocked and sold by agency" subtitle="Monthly units · light bars: restocked · solid bars: sold" type="bar" unit="Units" labels={labels} valueRange={valueRange} datasets={restockingDatasets} coverage={monthlyNotes} selectDataset
+          takeaway={showInsights?monthly.agencies.map(series=>series.agency+': '+series.takeaway):null}
+          onPoint={(i,datasetIndex)=>onSource({productKey:product.key,month:monthly.months[i],agency:monthly.agencies[Math.floor(datasetIndex/2)].agency})} interactionHint="Select a bar to inspect that agency’s source rows for the month. Missing observations appear as gaps or —."
+          columns={restockingColumns} rows={monthly.months.map((month,index)=>({month,index}))}/>
       </div>
     </section>
     <div className="section-heading product-history-heading"><h2>Sales &amp; stock history</h2></div>
@@ -77,13 +82,12 @@ export default function ProductView({data,onSource,onAgency,showInsights=true}) 
         rows={monthly.months.map((month,i)=>({month,index:i,values:monthly.agencies.map(series=>series.rows[i].qoh)}))}/>
     </div>
     </div>
-    {showInsights&&<section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>}
-    </div>
-<div hidden={section!=='agencies'} className="product-agency-comparison">
+    <div className="section-heading product-history-heading"><h2>Agency comparison</h2></div>
+    <div className="product-agency-comparison">
     <ChartPanel title="Agency sales & restocking" subtitle={'Units during '+(f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end))} type="bar" horizontal labels={product.agencies.map(row=>row.agency)} datasets={[{label:'Sold units',data:product.agencies.map(row=>row.units),color:'#3489e0'},{label:'Restocked units',data:product.agencies.map(row=>row.purchased),color:'#e65722'}]} onPoint={i=>onAgency(product.agencies[i].agency)} columns={agencyColumns} rows={product.agencies} takeaway={showInsights?product.agencies.map(row=>row.agency+': '+exact(row.units)+' units sold, '+exact(row.purchased)+' restocked; '+exact(row.qoh)+' closing units at '+monthLabel(f.end)+'.'):null}/>
         <ChartPanel title="Stock cover by agency" subtitle={'Closing stock: '+monthLabel(f.end)+' · sales pace: '+baseline} type="bar" horizontal unit="Days" labels={liquidAgencies.map(row=>row.agency)} datasets={[{label:'Estimated days of cover',data:liquidAgencies.map(row=>row.daysOfCover)}]} onPoint={i=>onAgency(liquidAgencies[i].agency)} columns={[{label:'Agency',render:row=><button onClick={()=>onAgency(row.agency)}>{row.agency}</button>},{label:'Category',render:row=><LiquidityBadge value={row}/>},{label:'Days of cover',numeric:true,render:row=>coverDays(row.daysOfCover)},{label:'Three-month sale units',numeric:true,render:row=>exact(row.units)},{label:'Closing units',numeric:true,render:row=>exact(row.qoh)},{label:'Data note',key:'reason'}]} rows={liquidAgencies} interactionHint="Non-moving and insufficient-data entries have no finite days-of-cover bar; their category is shown in the table and badges." takeaway={showInsights?liquidAgencies.map(row=>row.agency+': '+row.label+(row.daysOfCover!=null?' · '+coverDays(row.daysOfCover):'. '+row.reason)):null}/>
-</div>
+    </div>
+    {showInsights&&<section className="insights panel product-insights"><div className="insights-title"><span className="insight-icon" aria-hidden="true">✧</span><div><h2>Trends &amp; agency insights</h2><p>Calculated only from {product.name} observations</p></div></div><ul>{(product.insights.length?product.insights:['No product insights available for this selection.']).map(text=><li key={text}>{text}</li>)}</ul></section>}
     <div className="product-source-actions"><button className="text-button" onClick={()=>onSource({productKey:product.key})}>View source rows ↗</button></div>
-    <ProductPrices productName={product.name} prices={pricesForSku(data.prices,product.sku)} status={data.priceStatus}/>
   </section>;
 }

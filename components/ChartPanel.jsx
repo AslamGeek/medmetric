@@ -19,13 +19,13 @@ export function DataTable({ columns, rows, empty = 'No data available' }) {
   return <div className="table-scroll"><table><thead><tr>{columns.map(c => <th key={c.label} scope="col">{c.label}</th>)}</tr></thead><tbody>{rows.map((r,i) => <tr key={r.key || r.sheetRow || i}>{columns.map(c => <td key={c.label} className={c.numeric ? 'num' : ''}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children, unit, interactionHint, valueRange, takeaway, coverage, chartHeight, emptyText, stacked=false, xAxisTitle, yAxisTitle, referenceLines }) {
+export default function ChartPanel({ title, subtitle, labels, datasets, currency = false, horizontal = false, type = 'line', onPoint, columns, rows, children, unit, interactionHint, valueRange, takeaway, coverage, chartHeight, emptyText, stacked=false, xAxisTitle, yAxisTitle, referenceLines, selectDataset=false }) {
   const [view,setView]=useState('chart');
   const id=useId();
   const axisUnit=unit || (currency?'₹':'Units');
   const canvas = useRef(null), onPointRef = useRef(onPoint);
   onPointRef.current = onPoint;
-  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type,axisUnit,valueRange,coverage,stacked,xAxisTitle,yAxisTitle,referenceLines });
+  const signature = JSON.stringify({ labels,datasets,currency,horizontal,type,axisUnit,valueRange,coverage,stacked,xAxisTitle,yAxisTitle,referenceLines,selectDataset });
   const available = datasets.some(s => s.data.some(v => v != null));
   useEffect(() => {
     if (view!=='chart' || !canvas.current || !available) return;
@@ -52,7 +52,10 @@ export default function ChartPanel({ title, subtitle, labels, datasets, currency
         interaction:{ mode:scatter||spec.horizontal ? 'nearest' : 'index', intersect:scatter },
         plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:scatter?'circle':spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';if(scatter)return item.raw.name;const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => scatter?['Stock cover: '+exact(ctx.parsed.x)+' days','Daily sales pace change: '+percentage(ctx.parsed.y),'Review: '+ctx.dataset.label]:ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
         scales,
-        onClick:(_,points) => { if (points.length) onPointRef.current?.(points[0].index,points[0].datasetIndex); }
+        onClick:(event,points,chart) => {
+          const selected=spec.selectDataset?chart.getElementsAtEventForMode(event,'nearest',{intersect:true},false):points;
+          if (selected.length) onPointRef.current?.(selected[0].index,selected[0].datasetIndex);
+        }
       }
     });
     return () => chart.destroy();
