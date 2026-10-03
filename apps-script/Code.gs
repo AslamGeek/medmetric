@@ -156,7 +156,7 @@ function saveDoctor_(ss,command,data,today){
     if(!pharmacy){
       const latest=data.PHARMACIES.reduce((max,p)=>{const m=String(p.Pharmacy_ID).match(/^PH-(\d+)$/);return m?Math.max(max,Number(m[1])):max;},0);
       if(!Number.isSafeInteger(latest+1))throw new Error('Pharmacy ID sequence is out of range.');
-      pharmacy={Pharmacy_ID:'PH-'+String(latest+1).padStart(3,'0'),Pharmacy_Name:name.trim(),Area:String(command.record.Area||'').trim(),Camp:String(command.record.Camp||'').trim(),Stockist:command.record.Stockist,Identity_Status:'ENTERED',Notes:'',Active:'YES'};
+      pharmacy={Pharmacy_ID:'PH-'+String(latest+1).padStart(3,'0'),Pharmacy_Name:name.trim(),Area:String(command.record.Area||'').trim(),Camp:String(command.record.Camp||'').trim(),Stockist:command.record.Stockist||'',Identity_Status:'ENTERED',Notes:'',Active:'YES'};
       newPharmacy=true;
     }
   }
@@ -229,7 +229,7 @@ function appendLinkRecords_(ss,newRows){
 // BEGIN GENERATED FIELD TRACKING
 // Shared with the Apps Script backend by scripts/build-field-backend.js.
 const FIELD_SPEC = {
-  DOCTORS: {headers:'Doctor_ID,Doctor_Name,Specialties,Hospital,Pharmacy_ID,Area,Camp,Potential,Prescriber_Status,Stockist,OP_Timing,Call_Schedule,Notes,Active'.split(','),required:['Doctor_Name','Pharmacy_ID','Area','Camp','Stockist','Active'],options:{Stockist:['Both','Madhu','Meda'],Prescriber_Status:['Rx','NRx'],Active:['YES','NO']}},
+  DOCTORS: {headers:'Doctor_ID,Doctor_Name,Specialties,Hospital,Pharmacy_ID,Area,Camp,Potential,Prescriber_Status,Stockist,OP_Timing,Call_Schedule,Notes,Active'.split(','),required:['Doctor_Name','Pharmacy_ID','Area','Camp','Active'],options:{Stockist:['Both','Madhu','Meda'],Prescriber_Status:['Rx','NRx'],Active:['YES','NO']}},
   PHARMACIES: {headers:'Pharmacy_ID,Pharmacy_Name,Area,Camp,Stockist,Identity_Status,Notes,Active'.split(',')},
   DOCTOR_PRODUCTS: {headers:'Link_ID,Doctor_ID,Product_SKU,Pharmacy_ID,Relationship,Start_Date,End_Date,Notes,Active'.split(','),required:['Doctor_ID','Product_SKU','Relationship','Active'],dates:['Start_Date','End_Date'],options:{Relationship:['EXISTING','DISCUSSION','OTHER'],Active:['YES','NO']}},
   RX_ACTIVITY: {headers:'Rx_ID,Prescription_Date,Reported_Date,Doctor_ID,Pharmacy_ID,Product_SKU,Quantity,Quantity_Unit,Confirmation,Notes,Created_At,Updated_At'.split(','),required:['Reported_Date','Doctor_ID','Product_SKU','Confirmation'],dates:['Prescription_Date','Reported_Date'],numbers:['Quantity'],options:{Confirmation:['REPORTED','CONFIRMED']}},

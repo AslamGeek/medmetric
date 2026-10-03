@@ -158,3 +158,12 @@ test('pharmacy edits preserve saved activity and new Rx products use the edited 
  for(const pharmacyName of ['', '   ']){const invalid=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:edited.record,previous:edited.record,pharmacyName});assert.equal(invalid.ok,false);assert.match(invalid.error,/Enter the pharmacy name/);}
  assert.equal(JSON.stringify(f.tables),before);
 });
+
+test('doctors can be added without a stockist and an existing stockist can be cleared',()=>{
+ const f=backendFixture();
+ const created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Optional stockist pharmacy',record:{Doctor_ID:'',Doctor_Name:'Optional Stockist Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});
+ assert.equal(created.ok,true,created.error);assert.equal(created.record.Stockist,'');assert.equal(created.pharmacies[0].Stockist,'');
+ const selected=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Stockist:'Madhu'},previous:created.record,pharmacyName:'Optional stockist pharmacy'});assert.equal(selected.ok,true,selected.error);
+ const cleared=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...selected.record,Stockist:''},previous:selected.record,pharmacyName:'Optional stockist pharmacy'});assert.equal(cleared.ok,true,cleared.error);assert.equal(cleared.record.Stockist,'');
+ const invalid=f.call({action:'field_save',table:'DOCTORS',operation:'update',record:{...cleared.record,Stockist:'Unknown'},previous:cleared.record,pharmacyName:'Optional stockist pharmacy'});assert.equal(invalid.ok,false);assert.match(invalid.error,/Invalid Stockist/);
+});
