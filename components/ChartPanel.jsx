@@ -31,6 +31,7 @@ export default function ChartPanel({ title, subtitle, labels, datasets, currency
     if (view!=='chart' || !canvas.current || !available) return;
     const spec = JSON.parse(signature);
     const scatter=spec.type==='scatter';
+    const mixed=spec.datasets.some(series=>series.type&&series.type!==spec.type);
     const scales=scatter?{
       x:{type:'linear',min:0,title:{display:true,text:spec.xAxisTitle||'Stock cover · days'},grid:{color:'#e5e9ee'},border:{display:false},ticks:{color:'#687586',callback:v=>compact(v)}},
       y:{type:'linear',beginAtZero:true,title:{display:true,text:spec.yAxisTitle||'Sales pace change · %'},grid:{color:'#e5e9ee'},border:{display:false},ticks:{color:'#687586',callback:v=>compact(v)+'%'}}
@@ -45,12 +46,15 @@ export default function ChartPanel({ title, subtitle, labels, datasets, currency
     }};
     const chart = new Chart(canvas.current, {
       type: spec.type,
-      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => ({ label:s.label, data:s.data, borderColor:s.color || colors[i % colors.length], backgroundColor:s.color || colors[i % colors.length], borderWidth:spec.type === 'line' ? 2.5 : 0, pointRadius:scatter?5:4, pointHoverRadius:7, pointBackgroundColor:s.color || colors[i % colors.length], pointBorderWidth:1, tension:0, fill:false, borderRadius:4, maxBarThickness:spec.horizontal ? 24 : 42, spanGaps:false })) },
+      data: { labels: spec.labels, datasets: spec.datasets.map((s,i) => {
+        const datasetType=s.type||spec.type,color=s.color||colors[i % colors.length];
+        return {type:datasetType,label:s.label,data:s.data,borderColor:color,backgroundColor:color,borderWidth:datasetType==='line'?2.5:0,borderDash:s.borderDash||[],order:mixed&&datasetType==='bar'?1:0,pointRadius:scatter?5:4,pointHitRadius:mixed&&datasetType==='line'?8:1,pointHoverRadius:7,pointBackgroundColor:color,pointBorderWidth:1,tension:0,fill:false,borderRadius:4,maxBarThickness:spec.horizontal?24:42,spanGaps:false};
+      }) },
       plugins:[guides],
       options: {
         responsive:true, maintainAspectRatio:false, indexAxis:spec.horizontal ? 'y' : 'x', animation:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration:200 },
         interaction:{ mode:scatter||spec.horizontal ? 'nearest' : 'index', intersect:scatter },
-        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, pointStyle:scatter?'circle':spec.type==='line'?'line':'rectRounded', boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12, callbacks:{ title:items=>{const item=items[0];if(!item)return '';if(scatter)return item.raw.name;const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => scatter?['Stock cover: '+exact(ctx.parsed.x)+' days','Daily sales pace change: '+percentage(ctx.parsed.y),'Review: '+ctx.dataset.label]:ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
+        plugins:{ legend:{ display:true, position:'bottom', align:'start', labels:{ usePointStyle:true, generateLabels:chart=>Chart.defaults.plugins.legend.labels.generateLabels(chart).map(item=>({...item,pointStyle:chart.data.datasets[item.datasetIndex].type==='line'?'line':scatter?'circle':'rectRounded'})),sort:(a,b)=>a.datasetIndex-b.datasetIndex,boxWidth:12, boxHeight:12, padding:20, color:'#465366', font:{ size:12 } } }, tooltip:{ backgroundColor:'#233347', padding:12,itemSort:(a,b)=>a.datasetIndex-b.datasetIndex, callbacks:{ title:items=>{const item=items[0];if(!item)return '';if(scatter)return item.raw.name;const note=displayCoverage(spec.coverage?.[item.dataIndex]);return item.label+(note?' · '+note:'');},label:ctx => scatter?['Stock cover: '+exact(ctx.parsed.x)+' days','Daily sales pace change: '+percentage(ctx.parsed.y),'Review: '+ctx.dataset.label]:ctx.dataset.label + ': ' + exact(ctx.raw,spec.currency) + (spec.currency ? '' : ' '+spec.axisUnit.toLowerCase()) } } },
         scales,
         onClick:(event,points,chart) => {
           const selected=spec.selectDataset?chart.getElementsAtEventForMode(event,'nearest',{intersect:true},false):points;

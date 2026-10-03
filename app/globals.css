@@ -10,7 +10,9 @@ fieldset.filters{margin:0;min-width:0}.account-actions{display:flex;align-items:
 .back-products{margin:0 0 15px;padding-left:0}.page-heading h1{overflow-wrap:anywhere}
 .product-source-actions{display:flex;justify-content:flex-end;margin:18px 0 10px}
 .product-growth-section{margin:22px 0 24px}
-.product-restocking{margin:24px 0}
+.product-monthly-analysis{margin:24px 0}
+.product-monthly-analysis .chart-panel .chart-wrap{height:360px}
+@media(max-width:760px){.product-monthly-analysis .chart-panel .chart-wrap{height:340px}}
 .product-cover-context{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:12px;font-size:11px;color:var(--muted)}
 .product-history-heading{margin-top:24px}
 #product-detail .section-heading>h2{font-size:17px}.product-insights{margin:20px 0 24px}.product-insights ul{grid-template-columns:1fr;font-size:13px;line-height:1.7;gap:10px}.product-insights .insights-title{min-width:190px}.product-insights .insights-title h2{font-size:15px}.product-agencies{margin-top:22px}.product-agencies table{font-size:12px}.product-agencies th{font-size:11px}.product-agencies .panel-header p{max-width:700px;line-height:1.6}
