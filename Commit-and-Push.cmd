@@ -26,12 +26,14 @@ $appFiles = @(
     'app/layout.jsx',
     'app/page.jsx',
     'app/globals.css',
+    'app/daily-reports.css',
     'app/api/config/route.js',
     'app/api/dashboard/route.js',
     'app/api/drilldown/route.js',
     'app/api/snapshot/route.js',
     'app/api/fields/route.js',
     'components/Dashboard.jsx',
+    'components/DailyReports.jsx',
     'components/FieldWorkspace.jsx',
     'components/DoctorDirectory.jsx',
     'components/DoctorProfile.jsx',
@@ -42,6 +44,7 @@ $appFiles = @(
     'components/ReportFilters.jsx',
     'components/LiquidityBadge.jsx',
     'lib/analytics.js',
+    'lib/daily-reports.js',
     'lib/chart-scales.js',
     'lib/product-rankings.js',
     'lib/product-explorer.js',
@@ -107,6 +110,11 @@ try {
     }
 
     Set-Location -LiteralPath $checkoutDir
+    Write-Host 'Checking deployment files and publisher dependencies.'
+    & node 'scripts/check-deployment.js'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Deployment validation failed. Resolve the missing source files or publisher entries before retrying.'
+    }
     $remote = & git remote get-url origin
     if ($LASTEXITCODE -ne 0 -or $remote.TrimEnd('/') -ne $repoUrl) {
         throw 'The checkout origin does not match the configured MedMetric repository. No files have been staged or pushed.'
