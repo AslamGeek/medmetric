@@ -10,6 +10,15 @@ fieldset.filters{margin:0;min-width:0}.account-actions{display:flex;align-items:
 .back-products{margin:0 0 15px;padding-left:0}.page-heading h1{overflow-wrap:anywhere}
 .product-source-actions{display:flex;justify-content:flex-end;margin:18px 0 10px}
 .product-growth-section{margin:22px 0 24px}
+.explorer-cover-filters{padding:12px 0 16px}
+.explorer-cover-filters>div:first-child{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px;font-size:11px}
+.explorer-cover-filters>div:first-child>span{color:var(--muted)}
+.explorer-cover-chips{display:flex;flex-wrap:wrap;gap:7px}
+.explorer-cover-chips button{display:flex;align-items:center;gap:6px;min-height:34px;padding:6px 9px;border:1px solid var(--border);border-radius:7px;background:var(--paper);color:var(--muted);font-size:11px}
+.explorer-cover-chips button[aria-pressed=true]{border-color:var(--blue);color:var(--blue);background:var(--soft)}
+.explorer-cover-chips i{width:7px;height:7px;border-radius:50%}
+.explorer-cover-chips b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.explorer-priorities{margin-bottom:22px}
 .product-monthly-analysis{margin:24px 0}
 .product-monthly-analysis .chart-panel .chart-wrap{height:360px}
 @media(max-width:760px){.product-monthly-analysis .chart-panel .chart-wrap{height:340px}}

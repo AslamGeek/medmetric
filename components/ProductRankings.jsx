@@ -1,52 +1,37 @@
 'use client';
-import { useState } from 'react';
-import ChartPanel, {exact,monthLabel,percentage} from './ChartPanel.jsx';
+import {useState} from 'react';
+import ChartPanel,{exact,monthLabel} from './ChartPanel.jsx';
 import {selectProductRankings} from '../lib/product-rankings.js';
-import ReportFilters from './ReportFilters.jsx';
-import {patchReportFilters,resolveVisualFilters} from '../lib/report-filters.js';
 
-const number=(value,fallback=0)=>value===''?fallback:Math.max(0,Number(value)||0);
-const numeric=(label,key,currency=false)=>({label,numeric:true,render:row=>exact(row[key],currency)});
-
-export default function ProductRankings({data,onSelect,model,mode='both',showInsights=true}) {
-  const [topScope,setTopScope]=useState(null),[stockScope,setStockScope]=useState(null);
-  const topData=topScope?model(resolveVisualFilters(data.filters,topScope)):data;
-  const stockData=stockScope?model(resolveVisualFilters(data.filters,stockScope)):data;
-  function scopeChange(current,patch,setScope) {
-    const {start,end,agency,brand}=patchReportFilters(current,patch);
-    setScope({start,end,agency,brand});
-  }
-  const [search,setSearch]=useState(''),[limit,setLimit]=useState(10),[salesMetric,setSalesMetric]=useState('estimatedValue');
-  const [movementScope,setMovementScope]=useState('agency'),[movementMode,setMovementMode]=useState('zero');
-  const [maxUnits,setMaxUnits]=useState('5'),[minStock,setMinStock]=useState('1'),[minAge,setMinAge]=useState(''),[stockMetric,setStockMetric]=useState('value');
-  const result=selectProductRankings(topData.productAnalysis,{search,limit,salesMetric,movementScope,movementMode,maxUnits:number(maxUnits),minStock:number(minStock),minAge:minAge===''?null:number(minAge),stockMetric});
-  const movement=selectProductRankings(stockData.productAnalysis,{search,limit,movementScope,movementMode,maxUnits:number(maxUnits),minStock:number(minStock),minAge:minAge===''?null:number(minAge),stockMetric});
-  const periodLabel=f=>f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end);
-  const f=stockData.filters,period=periodLabel(f),salesPeriod=periodLabel(topData.filters);
-  const valueSales=salesMetric==='estimatedValue',stockValue=stockMetric==='value';
-  const choose=row=>onSelect(row.productKey,movementScope==='agency'?row.agency:undefined,stockData.filters);
-  const productColumn={label:'Product',render:row=><button type="button" onClick={()=>onSelect(row.productKey,undefined,topData.filters)}>{row.name}</button>};
-  const topInsights=[];
-  if(result.top[0])topInsights.push(result.top[0].name+' leads with '+exact(result.top[0][salesMetric],valueSales)+(valueSales?' estimated value':' units sold')+' ('+percentage(result.top[0][salesMetric]/result.salesTotal*100).replace('+','')+' of '+(valueSales?'products with available estimates':'ranked unit sales')+').');
-  if(valueSales)topInsights.push('Estimate = each row’s units sold × (closing stock value ÷ closing units), then summed over the period. Stock valuation can differ from selling price; this is not actual sales revenue.');
-  if(valueSales&&result.unavailableValue)topInsights.push(result.unavailableValue+' selling products have no complete estimate, often because closing stock is zero or a valuation is missing. Switch to Units sold to include them.');
-  if(result.incompleteProducts)topInsights.push(result.incompleteProducts+' products lack complete sales observations or full-month statements for the selected period and are omitted.');
-  const movementInsights=[movement.nonMovingCount?movement.nonMovingCount+' '+(movementScope==='agency'?'product / agency pairs':'products')+' '+(movementMode==='zero'?'recorded zero sales throughout':'sold at most '+exact(number(maxUnits))+' units across')+' '+period+', with '+exact(movement.stockUnits)+' units still held at '+monthLabel(f.end)+(movement.stockTotal==null?'. Closing stock value is unavailable.':', worth '+exact(movement.stockTotal,true)+' in closing stock.'):'No confirmed '+(movementMode==='zero'?'zero-sale':'low-sale')+' stock matches the selected period and thresholds.'];
-  if(movement.nonMoving[0])movementInsights.push(movement.nonMoving[0].name+' · '+movement.nonMoving[0].agency+' has the most '+(stockValue?'stock value: '+exact(movement.nonMoving[0].value,true):'stock units: '+exact(movement.nonMoving[0].qoh))+'.');
-  if(movement.unknownMovement)movementInsights.push(movement.unknownMovement+' '+(movementScope==='agency'?'product / agency pairs':'products')+' have incomplete sales coverage; they are not classified as zero-sale.');
-  if(movement.unplottedMovement)movementInsights.push(movement.unplottedMovement+' matching entries have unknown '+(stockValue?'stock value':'stock units')+' and cannot be plotted.');
-  return <section aria-label="Product sales and non-moving stock analysis" className="product-rankings">
-    <div className="section-heading"><div><p className="eyebrow">PRODUCT RANKINGS</p><h2>{mode==='sales'?'Top-selling products':mode==='movement'?'Stock needing attention':'Product analysis'}</h2></div><span className="period-label">{mode==='sales'?salesPeriod:period} · {(mode==='sales'?topData.filters.agency:f.agency)||'All agencies'}</span></div>
-    <div className="ranking-filters"><label>Find product, SKU or agency<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search this report"/></label><label>Show per chart<select value={limit} onChange={e=>setLimit(Number(e.target.value))}>{[5,10,20].map(n=><option key={n} value={n}>Top {n}</option>)}</select></label><button className="text-button" onClick={()=>{setSearch('');setLimit(10);setTopScope(null);setStockScope(null);setSalesMetric('estimatedValue');setMovementScope('agency');setMovementMode('zero');setMaxUnits('5');setMinStock('1');setMinAge('');setStockMetric('value');}}>Reset view</button></div>
-    <p className="scope-note">Change the period or agency right inside the chart. Report filters apply until you choose a chart-specific selection.</p>
-    <div className={mode==='both'?'chart-grid':'ranking-report-grid'}>
-      {mode!=='movement'&&<ChartPanel title={valueSales?'Top-Selling Products by Estimated Sales Value':'Top-Selling Products by Units Sold'} subtitle={'Showing '+result.top.length+' of '+result.topCount+' · '+salesPeriod+(valueSales?' · estimated ₹':' · units')} type="bar" horizontal currency={valueSales} chartHeight={Math.max(320,result.top.length*34+85)} labels={result.top.map(row=>row.name)} datasets={[{label:valueSales?'Estimated sales value':'Units sold',data:result.top.map(row=>row[salesMetric])}]} onPoint={i=>onSelect(result.top[i].productKey,undefined,topData.filters)} interactionHint="Select a product to open its trends and agency breakdown." emptyText={valueSales?'No complete value estimates for these filters. Try Units sold.':'No products with positive, fully observed sales match these filters.'} takeaway={showInsights?topInsights:null} columns={[productColumn,{label:'SKU',key:'sku'},{label:'Observed agencies',key:'agency'},numeric('Units sold','units'),numeric('Estimated sales value ₹','estimatedValue',true)]} rows={result.top}>
-        <ReportFilters visual custom={!!topScope} data={topData} onChange={patch=>scopeChange(topData.filters,patch,setTopScope)} onReset={()=>setTopScope(null)}/><div className="ranking-filters"><label>Rank by<select value={salesMetric} onChange={e=>setSalesMetric(e.target.value)}><option value="estimatedValue">Estimated sales value ₹</option><option value="units">Units sold</option></select></label></div>
-      </ChartPanel>}
-      {mode!=='sales'&&<ChartPanel title={movementMode==='zero'?'Zero-Sale / Non-Moving Products':'Low-Sale Products'} subtitle={'Showing '+movement.nonMoving.length+' of '+movement.nonMovingCount+' matches · stock at '+monthLabel(f.end)} type="bar" horizontal currency={stockValue} chartHeight={Math.max(320,movement.nonMoving.length*34+85)} labels={movement.nonMoving.map(row=>row.name+' · '+row.agency)} datasets={[{label:stockValue?'Closing stock value':'Closing stock units',color:'#e65722',data:movement.nonMoving.map(row=>row[stockMetric])}]} onPoint={i=>choose(movement.nonMoving[i])} interactionHint="Select an entry to inspect the product and its agency." emptyText="No confirmed non-moving stock matches these filters. Incomplete sales are excluded." takeaway={showInsights?movementInsights:null} columns={[{label:'Product',render:row=><button type="button" onClick={()=>choose(row)}>{row.name}</button>},{label:'Agency',key:'agency'},numeric('Period units sold','units'),numeric('Closing units','qoh'),numeric('Closing stock ₹','value',true),numeric('Min. recorded age','age')]} rows={movement.nonMoving}>
-        <ReportFilters visual custom={!!stockScope} data={stockData} onChange={patch=>scopeChange(stockData.filters,patch,setStockScope)} onReset={()=>setStockScope(null)}/><div className="ranking-filters movement-filters"><label>Movement scope<select value={movementScope} onChange={e=>setMovementScope(e.target.value)}><option value="agency">By product + agency</option><option value="product">Across observed agencies</option></select></label><label>Sales condition<select value={movementMode} onChange={e=>setMovementMode(e.target.value)}><option value="zero">Zero sales in every observation</option><option value="slow">Period units sold ≤ threshold</option></select></label>{movementMode==='slow'&&<label>Units sold ≤<input type="number" min="0" step="any" value={maxUnits} onChange={e=>setMaxUnits(e.target.value)}/></label>}<label>Closing units ≥<input type="number" min="0" step="any" value={minStock} onChange={e=>setMinStock(e.target.value)}/></label><label>Recorded age ≥<input type="number" min="0" step="any" placeholder="Any" value={minAge} onChange={e=>setMinAge(e.target.value)}/></label><label>Rank stock by<select value={stockMetric} onChange={e=>setStockMetric(e.target.value)}><option value="value">Closing stock value ₹</option><option value="qoh">Closing stock units</option></select></label></div>
-        <p className="scope-note">Bars show remaining stock, so zero-sale entries remain visible. Age uses the minimum recorded age across closing observations; its unit is as recorded in the source.</p>
-      </ChartPanel>}
+export default function ProductRankings({data,analysis,onSelect,mode='sales',onModeChange,showInsights=true}){
+  const [limit,setLimit]=useState(10),[condition,setCondition]=useState('zero'),[maxUnits,setMaxUnits]=useState('5'),[stockMetric,setStockMetric]=useState('value');
+  const sales=mode==='sales',stockValue=stockMetric==='value',threshold=Math.max(0,Number(maxUnits)||0);
+  const result=selectProductRankings(analysis,{limit,salesMetric:'units',movementScope:'agency',movementMode:condition,maxUnits:threshold,minStock:0,stockMetric});
+  const rows=sales?result.top:result.nonMoving,count=sales?result.topCount:result.nonMovingCount;
+  const f=data.filters,period=f.start===f.end?monthLabel(f.end):monthLabel(f.start)+' – '+monthLabel(f.end);
+  const metric=sales?'units':stockMetric,currency=!sales&&stockValue;
+  const title=sales?'Best sellers':condition==='zero'?'Stock with zero sales':'Stock with low sales';
+  const choose=row=>onSelect(row.productKey,sales?undefined:row.agency);
+  const numeric=(label,key,money=false)=>({label,numeric:true,render:row=>exact(row[key],money)});
+  const notes=[];
+  if(sales&&result.incompleteProducts)notes.push(result.incompleteProducts+(result.incompleteProducts===1?' product has':' products have')+' incomplete sales coverage and '+(result.incompleteProducts===1?'is':'are')+' excluded from the ranking.');
+  if(!sales&&result.unknownMovement)notes.push(result.unknownMovement+(result.unknownMovement===1?' product/agency pair has':' product/agency pairs have')+' incomplete sales coverage and cannot be classified as zero or low sales.');
+  if(!sales&&result.unplottedMovement)notes.push(result.unplottedMovement+(result.unplottedMovement===1?' matching entry has':' matching entries have')+' no stock valuation. Select Stock units to include them.');
+  const takeaway=sales?(rows[0]?[rows[0].name+' leads with '+exact(rows[0].units)+' units sold during '+period+'.']:null):result.nonMovingCount?[
+    result.nonMovingCount+(result.nonMovingCount===1?' product/agency pair ':' product/agency pairs ')+(condition==='zero'?'recorded zero sales':'sold at most '+exact(threshold)+' units')+' during '+period+', with '+exact(result.stockUnits)+' units remaining'+(result.stockTotal==null?'.':', valued at '+exact(result.stockTotal,true)+'.')
+  ]:null;
+  return <section className="product-rankings explorer-priorities" aria-label="Product priorities">
+    <div className="ranking-filters"><label>Explore<select value={mode} onChange={event=>onModeChange(event.target.value)}><option value="sales">Best sellers</option><option value="movement">Stock needing attention</option></select></label>
+      {!sales&&<><label>Sales during this period<select value={condition} onChange={event=>setCondition(event.target.value)}><option value="zero">Zero sales</option><option value="slow">Low sales</option></select></label>{condition==='slow'&&<label>Units sold ≤<input type="number" min="0" step="any" value={maxUnits} onChange={event=>setMaxUnits(event.target.value)}/></label>}<label>Compare remaining stock by<select value={stockMetric} onChange={event=>setStockMetric(event.target.value)}><option value="value">Stock value ₹</option><option value="qoh">Stock units</option></select></label></>}
+      <label>Show<select value={limit} onChange={event=>setLimit(Number(event.target.value))}>{[5,10,20].map(value=><option key={value} value={value}>Top {value}</option>)}</select></label>
     </div>
+    <ChartPanel title={title} subtitle={'Showing '+rows.length+' of '+count+' · '+period+' · '+(f.agency||'All agencies')} type="bar" horizontal currency={currency} unit={currency?'₹':'Units'} chartHeight={Math.max(270,rows.length*34+80)} labels={rows.map(row=>row.name+(sales?'':' · '+row.agency))}
+      datasets={[{label:sales?'Units sold':stockValue?'Remaining stock value':'Remaining stock units',data:rows.map(row=>row[metric]),color:sales?'#3489e0':'#e65722'}]}
+      onPoint={index=>choose(rows[index])} interactionHint="Select a product to open its monthly sales and stock. The same search, category, period and agency filters apply throughout Product explorer."
+      emptyText={sales?'No fully observed positive sales match these filters.':result.unplottedMovement?'Matching stock has no valuation. Compare by Stock units to see these entries.':'No confirmed stock matches this condition. Incomplete sales are not treated as zero.'} takeaway={showInsights?takeaway:null}
+      columns={[{label:'Product',render:row=><button type="button" onClick={()=>choose(row)}>{row.name}</button>},...(sales?[{label:'SKU',key:'sku'}]:[{label:'Agency',key:'agency'}]),numeric('Period units sold','units'),numeric('Closing units','qoh'),numeric('Closing stock ₹','value',true)]} rows={rows}>
+      {!sales&&<p className="scope-note">Each entry identifies the agency holding stock at {monthLabel(f.end)}. {condition==='zero'?'Zero sales must be confirmed for the entire selected period.':'Low sales use the selected-period total.'}</p>}
+      {notes.length>0&&<p className="scope-note" role="status">{notes.join(' ')}</p>}
+    </ChartPanel>
   </section>;
 }
