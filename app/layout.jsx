@@ -1,3 +1,4 @@
 import './globals.css';
-export const metadata = { title: 'MedMetric · Sales Intelligence', description: 'Private, read-only agency stock and sales analytics.' };
+import './daily-reports.css';
+export const metadata = { title: 'MedMetric · Sales & Field Reports', description: 'Agency sales intelligence, doctor and pharmacy tracking, and daily field reports in one workspace.' };
 export default function RootLayout({ children }) { return <html lang="en"><body>{children}</body></html>; }
