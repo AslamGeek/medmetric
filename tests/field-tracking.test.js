@@ -92,6 +92,27 @@ test('a missing Google response retries delivery without replaying a committed d
  }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
 });
 
+test('exhausted response delivery confirms the committed edit with a new signed request',async()=>{
+ const f=backendFixture(),created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_Name:'Confirmed Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-backend-secret-for-retry-123456789';
+ try{
+  const writes=f.calls.writes;let posts=0,gets=0,committed;
+  const result=await fieldBackend({action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Confirmed after delivery failure'},previous:created.record,pharmacyName:'Original pharmacy'},async(url,options)=>{
+   if(options.method==='POST'){posts++;committed=f.call(JSON.parse(JSON.parse(options.body).payload));return new Response(null,{status:302,headers:{location:'https://script.googleusercontent.com/macros/echo?synthetic='+posts}});}
+   gets++;return posts===1?new Response('Missing',{status:404}):Response.json(committed);
+  });
+  assert.equal(posts,2);assert.equal(gets,3);assert.equal(result.alreadySaved,true);assert.equal(f.calls.writes,writes+1);
+ }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
+
+test('response redirects cannot forward credentials and health replies cannot confirm saves',async()=>{
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-backend-secret-for-retry-123456789';
+ try{
+  let calls=0;await assert.rejects(()=>fieldBackend({action:'field_save',operation:'create'},async()=>{calls++;return new Response(null,{status:302,headers:{location:'https://example.test/untrusted'}});}),/unavailable/);assert.equal(calls,1);
+  calls=0;await assert.rejects(()=>fieldBackend({action:'field_save',operation:'create'},async()=>{calls++;return Response.json({ok:true,service:'MedMetric'});}),/invalid save response/);assert.equal(calls,2);
+ }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
+
 test('retrying a doctor edit after its response is lost confirms the saved edit without another write',()=>{
  const f=backendFixture();
  const created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Retry Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
