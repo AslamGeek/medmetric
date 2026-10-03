@@ -74,6 +74,24 @@ function backendFixture(){
  return {tables,call,calls};
 }
 
+test('a missing Google response retries delivery without replaying a committed doctor edit',async()=>{
+ const f=backendFixture(),created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_Name:'Delivery Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});
+ const command={action:'field_save',table:'DOCTORS',operation:'update',record:{...created.record,Notes:'Saved edit'},previous:created.record,pharmacyName:'Original pharmacy'};
+ const oldUrl=process.env.APPS_SCRIPT_URL,oldSecret=process.env.MEDMETRIC_BACKEND_SECRET;process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-backend-secret-for-retry-123456789';
+ try{
+  for(const failure of ['missing','timeout']){
+   let posts=0,gets=0,committed;const delivery='https://script.googleusercontent.com/macros/echo?synthetic=delivery';
+   const result=await fieldBackend(command,async(url,options)=>{
+    if(options.method==='POST'){posts++;committed=f.call(JSON.parse(JSON.parse(options.body).payload));return new Response(null,{status:302,headers:{location:delivery}});}
+    assert.equal(url,delivery);assert.equal(options.method,'GET');assert.equal(options.body,undefined);
+    if(++gets===1){if(failure==='timeout')throw new DOMException('Lost response','TimeoutError');return new Response('Missing content',{status:404});}
+    return Response.json(committed);
+   });
+   assert.equal(result.record.Notes,'Saved edit');assert.equal(posts,1);assert.equal(gets,2);
+  }
+ }finally{if(oldUrl===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=oldUrl;if(oldSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=oldSecret;}
+});
+
 test('retrying a doctor edit after its response is lost confirms the saved edit without another write',()=>{
  const f=backendFixture();
  const created=f.call({action:'field_save',table:'DOCTORS',operation:'create',requestId:randomUUID(),pharmacyName:'Original pharmacy',record:{Doctor_ID:'',Doctor_Name:'Retry Doctor',Area:'Area',Camp:'Proddatur',Active:'YES',Prescriber_Status:'NRx'}});assert.equal(created.ok,true,created.error);
