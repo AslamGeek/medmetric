@@ -6,6 +6,7 @@ import {randomUUID,createHmac} from 'node:crypto';
 import {FIELD_SPEC,FIELD_OPTIONS_HEADERS} from '../lib/field-tracking.js';
 import {VISIT_HEADERS} from '../lib/visits.js';
 import {handleVisits} from '../lib/visit-server.js';
+import {fieldBackend} from '../lib/field-server.js';
 function fixture(){
  const tables={VISITS:[VISIT_HEADERS],DOCTORS:[FIELD_SPEC.DOCTORS.headers,...['D1','D2'].map(id=>FIELD_SPEC.DOCTORS.headers.map(h=>({Doctor_ID:id,Doctor_Name:'Same Name',Camp:'Camp',Specialties:'General',Pharmacy_ID:'PH1',Active:'YES'}[h]||'')))],PHARMACIES:[FIELD_SPEC.PHARMACIES.headers,FIELD_SPEC.PHARMACIES.headers.map(h=>({Pharmacy_ID:'PH1',Pharmacy_Name:'Pharmacy'}[h]||''))],FIELD_OPTIONS:[FIELD_OPTIONS_HEADERS,FIELD_OPTIONS_HEADERS.map(h=>h==='Camps'?'Camp':h==='Call Schedule'?'Everyday':'')]};
  let writes=0;
@@ -40,4 +41,16 @@ test('Visits route accepts only fixed commands and rejects cross-origin requests
  assert.equal((await handleVisits(req({action:'read',spreadsheet:'elsewhere'}),loader)).status,200);assert.deepEqual(command,{action:'visits_read'});
  assert.equal((await handleVisits(req({action:'read'},'https://other.test'),loader)).status,403);
  assert.equal((await handleVisits(req({action:'delete',table:'DOCTORS'}),loader)).status,400);
+});
+test('timed-out visit reads and saves report the correct recovery without permanent rejection',async()=>{
+ const previousURL=process.env.APPS_SCRIPT_URL,previousSecret=process.env.MEDMETRIC_BACKEND_SECRET;
+ process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/synthetic/exec';process.env.MEDMETRIC_BACKEND_SECRET='synthetic-visits-secret-only-for-testing';
+ try{
+  const timeout=async()=>{const error=new Error('timeout');error.name='TimeoutError';throw error;};
+  for(const [action,phrase] of [['read',/took too long to load/],['save',/saved on this device/]]){
+   const request=new Request('https://example.test/api/visits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...(action==='save'?{visit:input()}:{})})});
+   const response=await handleVisits(request,c=>fieldBackend(c,timeout)),body=await response.json();
+   assert.equal(response.status,504);assert.equal(body.permanent,false);assert.match(body.error,phrase);
+  }
+ }finally{if(previousURL===undefined)delete process.env.APPS_SCRIPT_URL;else process.env.APPS_SCRIPT_URL=previousURL;if(previousSecret===undefined)delete process.env.MEDMETRIC_BACKEND_SECRET;else process.env.MEDMETRIC_BACKEND_SECRET=previousSecret;}
 });
