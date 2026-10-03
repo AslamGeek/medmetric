@@ -84,13 +84,14 @@ function readFields_(ss,names=FIELD_TABLES,includeAgencies=true,includeProducts=
   const options=ss.getSheetByName('FIELD_OPTIONS');if(!options)throw new Error('Missing FIELD_OPTIONS tab.');
   data.options=fieldOptions(options.getRange(1,1,Math.max(1,options.getLastRow()),FIELD_OPTIONS_HEADERS.length).getDisplayValues());
   data.schemaVersion=2;
+  data.capabilities={doctorProducts:true};
   if(names===FIELD_TABLES)data.priceList=readPriceList_(ss);
   return data;
 }
 function saveField_(ss,command) {
   if(!['create','update'].includes(command.operation))throw new Error('Invalid save operation.');
   const spec=FIELD_SPEC[command.table];if(!FIELD_TABLES.includes(command.table)||!spec?.required)throw new Error('This table cannot be edited from the app.');
-  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table])],!!command.record?.Agency,command.table!=='DOCTORS'),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+  const data=readFields_(ss,[...new Set(['DOCTORS','PHARMACIES',command.table,...(command.table==='DOCTORS'?['DOCTOR_PRODUCTS']:[])])],!!command.record?.Agency,true),today=Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
   if(command.links!==undefined)return saveLinks_(ss,command,data,today);
   if(command.table==='DOCTORS')return saveDoctor_(ss,command,data,today);
   const record=validateFieldRecord(command.table,command.record,data,today);
@@ -127,6 +128,8 @@ function saveDoctor_(ss,command,data,today){
   if(creating&&(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(command.requestId||'')||command.record.Doctor_ID))throw new Error('Update the app before adding doctors; doctor IDs are assigned when saved.');
   const tokenHeader=sheet.getMaxColumns()>=15?String(sheet.getRange(1,15).getValue()):'';
   if(tokenHeader&&tokenHeader!=='Create_Request_ID')throw new Error('DOCTORS column O must be reserved for Create_Request_ID.');
+  const productsHeader=sheet.getMaxColumns()>=16?String(sheet.getRange(1,16).getValue()):'';
+  if(productsHeader&&productsHeader!=='Create_Product_Links')throw new Error('DOCTORS column P must be reserved for Create_Product_Links.');
   const tokens=creating&&tokenHeader&&sheet.getLastRow()>1?sheet.getRange(2,15,sheet.getLastRow()-1,1).getValues():[];
   const tokenRows=tokens.map((row,i)=>row[0]===command.requestId?i+2:0).filter(Boolean);
   if(tokenRows.length>1)throw new Error('Duplicate doctor create request IDs.');
@@ -156,13 +159,21 @@ function saveDoctor_(ss,command,data,today){
   }
   const proposed={...command.record,Doctor_ID:original?.Doctor_ID||nextDoctorId(command.record.Camp,data.DOCTORS),Pharmacy_ID:pharmacy.Pharmacy_ID};
   const record=validateFieldRecord('DOCTORS',proposed,{...data,PHARMACIES:newPharmacy?[...data.PHARMACIES,pharmacy]:data.PHARMACIES},today);
+  if(creating&&record.Prescriber_Status==='Rx'&&command.doctorProducts===undefined)throw new Error('Update the app and select prescribed products before creating an Rx doctor.');
+  const doctorProducts=command.doctorProducts!==undefined?doctorProductLinks(command.doctorProducts,record,{...data,PHARMACIES:newPharmacy?[...data.PHARMACIES,pharmacy]:data.PHARMACIES},today):[];
+  const productIntent=JSON.stringify(doctorProducts.map(r=>({Link_ID:r.Link_ID,Product_SKU:r.Product_SKU})).sort((a,b)=>a.Product_SKU.localeCompare(b.Product_SKU)));
+  const newLinks=doctorProducts.filter(r=>!data.DOCTOR_PRODUCTS.some(existing=>existing.Link_ID===r.Link_ID));
   if(creating&&original){
     if(spec.headers.some(h=>String(original[h]??'')!==String(record[h]??'')))throw new Error('This doctor request already saved with different values. Refresh before editing.');
-    return {ok:true,record:original,pharmacies:[pharmacy],alreadySaved:true};
+    const priorIntent=productsHeader?String(sheet.getRange(tokenRows[0],16).getValue()||''):'';
+    if(priorIntent&&priorIntent!==productIntent)throw new Error('This doctor request already saved with a different product selection. Retry unchanged or refresh before editing.');
+    appendLinkRecords_(ss,newLinks);
+    return {ok:true,record:original,pharmacies:[pharmacy],doctorProducts,alreadySaved:true};
   }
   // Validate the complete doctor before making any writes. Reuse the pharmacy if a prior save was interrupted.
-  if(sheet.getMaxColumns()<15)sheet.insertColumnsAfter(sheet.getMaxColumns(),15-sheet.getMaxColumns());
+  if(sheet.getMaxColumns()<16)sheet.insertColumnsAfter(sheet.getMaxColumns(),16-sheet.getMaxColumns());
   if(!tokenHeader){sheet.getRange(1,15).setValue('Create_Request_ID');sheet.hideColumns(15);}
+  if(!productsHeader){sheet.getRange(1,16).setValue('Create_Product_Links');sheet.hideColumns(16);}
   if(newPharmacy){
     const pharmacies=ss.getSheetByName('PHARMACIES'),row=pharmacies.getLastRow()+1;
     if(row>pharmacies.getMaxRows())pharmacies.insertRowsAfter(pharmacies.getMaxRows(),100);
@@ -173,10 +184,12 @@ function saveDoctor_(ss,command,data,today){
   if(row<2)throw new Error('Doctor ID was not found.');
   if(row>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),100);
   const values=spec.headers.map(h=>safeCell_(record[h]));
-  if(creating)values.push(command.requestId);
+  if(creating)values.push(command.requestId,productIntent);
   sheet.getRange(row,1,1,values.length).setValues([values]);
   SpreadsheetApp.flush();
-  return {ok:true,record,pharmacies:[pharmacy]};
+  // Stable link IDs and the saved selection let an interrupted create finish on retry.
+  appendLinkRecords_(ss,newLinks);
+  return {ok:true,record,pharmacies:[pharmacy],doctorProducts};
 }
 function safeCell_(value){const v=value??'';return typeof v==='string'&&v.startsWith('=')?"'"+v:v;}
 
@@ -193,7 +206,12 @@ function saveLinks_(ss,command,data,today){
     if(existing.length){if(spec.headers.some(h=>String(existing[0][h]??'')!==String(record[h]??'')))throw new Error('This link already exists with different values. Refresh before editing.');return existing[0];}
     newRows.push(record);return record;
   });
+  appendLinkRecords_(ss,newRows);
+  return {ok:true,records,alreadySaved:!newRows.length};
+}
+function appendLinkRecords_(ss,newRows){
   if(newRows.length){
+    const spec=FIELD_SPEC.DOCTOR_PRODUCTS;
     const sheet=ss.getSheetByName('DOCTOR_PRODUCTS'),row=sheet.getLastRow()+1;
     if(row+newRows.length-1>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),Math.max(100,row+newRows.length-1-sheet.getMaxRows()));
     sheet.getRange(row,1,newRows.length,spec.headers.length).setValues(newRows.map(record=>spec.headers.map(h=>{
@@ -203,7 +221,6 @@ function saveLinks_(ss,command,data,today){
     })));
     SpreadsheetApp.flush();
   }
-  return {ok:true,records,alreadySaved:!newRows.length};
 }
 
 // BEGIN GENERATED FIELD TRACKING
@@ -255,7 +272,7 @@ function fieldProducts(config) {
   for(const row of config){const sku=String(row.Your_SKU||'').trim();if(!sku)continue;
     const name=String(row.Your_Product_Name||sku).trim(),existing=products.get(sku);
     if(existing&&existing.Product_Name!==name)throw new Error('Conflicting names for SKU '+sku+' in PRODUCT_CONFIG.');
-    const active=String(row.Your_Status)==='ACTIVE'&&String(row.Include_In_Charts).toUpperCase()==='YES';
+    const active=String(row.Your_Status).trim().toUpperCase()==='ACTIVE';
     products.set(sku,{Product_SKU:sku,Product_Name:name,Active:active||existing?.Active||false});
   }
   return [...products.values()].sort((a,b)=>a.Product_Name.localeCompare(b.Product_Name));
@@ -293,7 +310,12 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
     if(record.Pharmacy_ID&&record.Pharmacy_ID!==pharmacy)throw new Error('Use the doctor’s fixed linked pharmacy.');
     record.Pharmacy_ID=pharmacy;
   }
-  if(record.Product_SKU&&!data.products?.some(p=>p.Product_SKU===record.Product_SKU))throw new Error('Choose an existing product SKU.');
+  if(record.Product_SKU){
+    const product=data.products?.find(p=>p.Product_SKU===record.Product_SKU);
+    if(!product)throw new Error('Choose an existing product SKU.');
+    const previous=data[table]?.find(r=>r[spec.headers[0]]===id);
+    if(!product.Active&&previous?.Product_SKU!==record.Product_SKU)throw new Error('Choose an active product for a new entry or changed product.');
+  }
   if(record.Agency&&!data.agencies?.includes(record.Agency))throw new Error('Unknown agency.');
   if(record.Quantity_Unit&&!QUANTITY_UNITS.includes(record.Quantity_Unit))throw new Error('Invalid quantity unit.');
   if((spec.numbers||[]).some(h=>present(record[h]))&&table!=='TARGETS'&&!record.Quantity_Unit)throw new Error('Select a quantity unit.');
@@ -312,6 +334,25 @@ function validateFieldRecord(table,input,data,today=indiaToday()) {
     if(data.TARGETS?.some(r=>r.Target_ID!==id&&r.Active==='YES'&&record.Active==='YES'&&['Month','Scope','Agency','Doctor_ID','Pharmacy_ID','Product_SKU','Metric','Quantity_Unit'].every(h=>(r[h]||'')===(record[h]||''))))throw new Error('An active target already exists for this selection. Edit it instead.');
   }
   return record;
+}
+// Initial Rx links use unknown dates and quantities; a doctor save records relationships only.
+function doctorProductLinks(selection,doctor,data,today=indiaToday()){
+  if(!Array.isArray(selection)||selection.length>data.products.length)throw new Error('Invalid prescribed product selection.');
+  if(doctor.Prescriber_Status!=='Rx'&&selection.length)throw new Error('Select Rx before adding prescribed products.');
+  const ids=new Set(),skus=new Set();
+  const records=selection.map(link=>{
+    if(!link||typeof link!=='object'||Array.isArray(link)||Object.keys(link).some(k=>!['Link_ID','Product_SKU'].includes(k)))throw new Error('Invalid prescribed product selection.');
+    const record=validateFieldRecord('DOCTOR_PRODUCTS',{...link,Doctor_ID:doctor.Doctor_ID,Pharmacy_ID:doctor.Pharmacy_ID,Relationship:'EXISTING',Start_Date:'',End_Date:'',Notes:'',Active:'YES'},{...data,DOCTORS:[...data.DOCTORS.filter(d=>d.Doctor_ID!==doctor.Doctor_ID),doctor]},today);
+    if(ids.has(record.Link_ID)||skus.has(record.Product_SKU))throw new Error('Select each prescribed product only once.');
+    ids.add(record.Link_ID);skus.add(record.Product_SKU);
+    const existing=data.DOCTOR_PRODUCTS.filter(r=>r.Link_ID===record.Link_ID);
+    if(existing.length>1)throw new Error('Duplicate link IDs.');
+    if(existing.length&&FIELD_SPEC.DOCTOR_PRODUCTS.headers.some(h=>String(existing[0][h]??'')!==String(record[h]??'')))throw new Error('This prescribed product request already saved with different values. Refresh before editing.');
+    if(data.DOCTOR_PRODUCTS.some(r=>r.Link_ID!==record.Link_ID&&r.Doctor_ID===doctor.Doctor_ID&&r.Product_SKU===record.Product_SKU&&r.Relationship==='EXISTING'&&r.Active==='YES'))throw new Error('This prescribed product is already linked to the doctor. Refresh before editing.');
+    return existing[0]||record;
+  });
+  if(doctor.Prescriber_Status==='Rx'&&!records.length&&!data.DOCTOR_PRODUCTS.some(r=>r.Doctor_ID===doctor.Doctor_ID&&r.Relationship==='EXISTING'&&r.Active==='YES'))throw new Error('Choose at least one prescribed product for an Rx doctor.');
+  return records;
 }
 function targetActual(target,data,monthly) {
   const scope=r=>(!target.Doctor_ID||r.Doctor_ID===target.Doctor_ID)&&(!target.Pharmacy_ID||r.Pharmacy_ID===target.Pharmacy_ID)&&(!target.Product_SKU||r.Product_SKU===target.Product_SKU)&&(!target.Agency||r.Agency===target.Agency);
