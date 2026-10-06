@@ -49,3 +49,19 @@ test('spreadsheet dates with day, month and year remain date-level in the app',(
   const result=sheetPricing({values:[headers,row('APITOPDROPS','30ml','4/1/2026','10+3',10,3)]});
   assert.equal(result.prices[0].lastUpdated,'2026-04-01');
 });
+
+test('lot economics load when the live sheet feed ends before the optional Tax column',()=>{
+  const liveHeaders=[
+    'Product_SKU','Product_Name','Pack','Last_Updated','MRP','PTS','PTR','Scheme','Paid_Packs','Free_Packs','Net_Price',
+    'Effective cost per unit (before GST)','Purchase value, paid packs (Rs, before GST)','Sale value, full lot (Rs, before GST)',
+    'Gross trade profit per lot (Rs, before income tax)','Margin / Unit','Margin % of MRP','Return on pre-tax purchase spend (%)'
+  ];
+  const liveRow=['APITOPDROPS','APITOP DROPS','30ml','10/1/2026',58,39.77,44.19,'10+3',10,3,33.99,32.37,420.86,718.1,297.24,22.86,0.4139,0.7063];
+  const result=sheetPricing({values:[liveHeaders,liveRow]});
+  assert.equal(result.priceStatus,'loaded');
+  assert.equal(result.prices[0].purchaseValue,420.86);
+  assert.equal(result.prices[0].saleValue,718.1);
+  assert.equal(result.prices[0].profitLot,297.24);
+  assert.equal(result.prices[0].effectiveCost,32.37);
+  assert.equal(result.prices[0].profitPerPack,22.86);
+});
