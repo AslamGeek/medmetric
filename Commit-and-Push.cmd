@@ -78,6 +78,7 @@ $appFiles = @(
     'tests/chart-scales.test.js',
     'tests/product-rankings.test.js',
     'tests/product-explorer.test.js',
+    'tests/product-prices.test.js',
     'tests/product-liquidity.test.js',
     'tests/report-filters.test.js',
     'tests/publisher.test.js',
