@@ -1,10 +1,11 @@
 'use client';
 import {useState} from 'react';
-import {DataTable,monthLabel} from './ChartPanel.jsx';
+import {DataTable} from './ChartPanel.jsx';
 import {currentPrices,schemeNetPrice} from '../lib/product-prices.js';
 const amount=value=>value==null?'—':'₹'+Number(value).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 const tax=value=>value==null?'—':(value*100).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';
 const percent=value=>value==null?'—':(value*100).toLocaleString('en-IN',{maximumFractionDigits:2})+'%';
+const dateLabel=value=>value?new Date(value+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'—';
 const scheme=price=>price.paid!=null&&price.free!=null?`${price.paid}+${price.free}`:price.scheme||'—';
 const priceFields=price=>[
   ['MRP',amount(price.mrp)],['PTS',amount(price.pts)],['PTR',amount(price.ptr)],['Tax',tax(price.tax)],['Scheme',scheme(price)],
@@ -37,14 +38,14 @@ const calculatorKey=price=>JSON.stringify([price.key,price.ptr,price.paid,price.
 export default function ProductPrices({prices=[],status='loaded',compact=false,productName='this product'}){
   if(!prices.length)return <div className="catalog-prices"><span className="product-price-empty">{status==='loaded'?'No current price listed for this SKU.':'Price list has not loaded. Refresh data to try again.'}</span><SchemeCalculator key={productName} price={{name:productName,ptr:null}}/></div>;
   if(compact)return <div className="catalog-prices">{prices.map(price=><section className="catalog-price-pack" key={price.key}>
-    <span className="price-pack-label">Listed pack · {price.pack||'—'} <span>From {monthLabel(price.effectiveFrom)}</span></span>
+    <span className="price-pack-label">Listed pack · {price.pack||'—'} <span>Updated {dateLabel(price.lastUpdated)}</span></span>
     {metricGrid(priceFields(price))}
     <details className="price-economics"><summary>Lot economics</summary>{metricGrid(lotFields(price))}</details>
     {price.issues.length>0&&<span className="price-issue">Some price data needs review.</span>}
     <SchemeCalculator key={calculatorKey(price)} price={price}/>
   </section>)}</div>;
   return <section className="panel product-price-detail" aria-label="Product prices"><h2>Prices &amp; scheme</h2>{prices.map(price=><article key={price.key}>
-    <div className="price-detail-heading"><strong>{price.name} · {price.pack||'Pack not specified'}</strong><span>Effective from {monthLabel(price.effectiveFrom)}</span></div>
+    <div className="price-detail-heading"><strong>{price.name} · {price.pack||'Pack not specified'}</strong><span>Last updated {dateLabel(price.lastUpdated)}</span></div>
     <h3 className="price-subheading">Listed price and per-pack economics</h3>{metricGrid(priceFields(price))}
     <h3 className="price-subheading">Whole-lot estimate</h3>{metricGrid(lotFields(price))}
     <p>Net price applies the listed paid/free scheme to PTR. Effective cost removes GST. Lot profit assumes the full lot sells at listed MRP before GST; it excludes overhead, returns and discounts. Prices apply only to the listed pack.</p>
@@ -56,9 +57,9 @@ export function ProductPriceList({data,onSelect}){
   const [search,setSearch]=useState('');
   const catalogue=new Map(data.options.products.filter(p=>p.sku).map(p=>[p.sku,p]));
   const prices=currentPrices(data.prices),query=search.trim().toLowerCase(),rows=prices.filter(p=>[p.name,p.sku,p.pack].some(v=>v.toLowerCase().includes(query)));
-  const months=[...new Set(prices.map(p=>p.effectiveFrom))].sort();
+  const updateDates=[...new Set(prices.map(p=>p.lastUpdated))].sort();
   return <section className="panel product-price-list" aria-label="Manufacturer price list">
-    <header className="price-list-heading"><div><h2>Manufacturer price list</h2><p>{prices.length} listed products / packs · {months.map(monthLabel).join(', ')||'No effective list loaded'} · current list prices across the catalogue</p></div><label>Find a listed product<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search product, SKU or pack"/></label></header>
+    <header className="price-list-heading"><div><h2>Manufacturer price list</h2><p>{prices.length} listed products / packs · updated {updateDates.map(dateLabel).join(', ')||'date unavailable'} · current list prices across the catalogue</p></div><label>Find a listed product<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search product, SKU or pack"/></label></header>
     <p className="scope-note">Net price applies the paid/free scheme to PTR. Effective cost and lot estimates exclude GST. The full price list includes products with no linked sales history; sales filters do not change these prices.</p>
     {data.priceWarnings?.length>0&&<p className="message error" role="status">{data.priceWarnings.join(' ')}</p>}
     <DataTable rows={rows} empty={data.priceStatus==='loaded'?'No prices match this search.':'The price list has not loaded. Refresh data to try again.'} columns={[
@@ -78,7 +79,7 @@ export function ProductPriceList({data,onSelect}){
       {label:'Profit / sale value',numeric:true,render:p=>percent(p.profitPct)},
       {label:'Return on pre-tax spend',numeric:true,render:p=>percent(p.returnOnSpend)},
       {label:'Offer calculator',render:p=><SchemeCalculator key={calculatorKey(p)} price={p}/>},
-      {label:'Effective from',render:p=>monthLabel(p.effectiveFrom)},
+      {label:'Last updated',render:p=>dateLabel(p.lastUpdated)},
       {label:'Product SKU',render:p=>p.sku||'—'},
       {label:'Notes',render:p=>[p.notes,...p.issues,!catalogue.has(p.sku)?'Price list only; no product in the current sales selection.':''].filter(Boolean).join(' ')||'—'}
     ]}/>

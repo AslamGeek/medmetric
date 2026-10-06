@@ -39,11 +39,11 @@ export default function Dashboard() {
   const [session]=useState(()=>createDashboardSession(force=>api('snapshot',{force},AbortSignal.timeout(55000))));
   useEffect(()=>{
     let active=true;
-    if(refresh===0){try{const restored=session.restore(JSON.parse(localStorage.getItem('medmetric-snapshot-v2-prices')));if(restored)setSnapshot(restored);}catch{}}
+    if(refresh===0){try{const restored=session.restore(JSON.parse(localStorage.getItem('medmetric-snapshot-v3-last-updated')));if(restored)setSnapshot(restored);}catch{}}
     setLoading(true);setError('');
     session.load(refresh>0).then(result=>{
       if(!active)return;setSnapshot(result);
-      try{localStorage.setItem('medmetric-snapshot-v2-prices',JSON.stringify(result));}catch{}
+      try{localStorage.setItem('medmetric-snapshot-v3-last-updated',JSON.stringify(result));}catch{}
     }).catch(e=>{if(active)setError(['TimeoutError','AbortError'].includes(e.name)?'The sheet took too long to load. Please retry.':e.message);}).finally(()=>{if(active)setLoading(false);});
     return()=>{active=false;};
   },[session,refresh]);
