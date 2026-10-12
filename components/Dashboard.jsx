@@ -11,7 +11,7 @@ import FieldWorkspace from './FieldWorkspace.jsx';
 import DailyReports from './DailyReports.jsx';
 import Visits from './Visits.jsx';
 
-const reports=[['overview','Overview','dashboard'],['daily','Daily reports','check'],['products','Product explorer','search'],['field','Doctors','check'],['visits','Visits','check']];
+const reports=[['daily','Daily reports','check'],['products','Product explorer','search'],['field','Doctors','check'],['visits','Visits','check'],['overview','Overview','dashboard']];
 const numeric=(label,key,currency=false)=>({label,numeric:true,render:r=>exact(r[key],currency)});
 const productLink=(label,action)=><button type="button" onClick={action}>{label}</button>;
 function Icon({kind}) {

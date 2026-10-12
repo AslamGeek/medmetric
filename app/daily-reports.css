@@ -39,7 +39,8 @@
 .daily-reports .daily-entry-help{font-size:11px;background:var(--daily-bg);border:1px solid var(--daily-border);border-radius:8px;padding:12px;margin:23px 0 0}
 .daily-preview{position:sticky;top:86px}
 .daily-preview pre{margin:0;padding:22px;background:var(--daily-bg);border:1px solid var(--daily-border);border-radius:10px;color:var(--daily-ink);font:12px/1.9 "Consolas","Courier New",monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
-.daily-copy{width:100%;margin-top:18px;min-height:47px!important;font-size:13px}
+.daily-preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.daily-copy{width:auto;margin:0;min-height:36px!important;padding:7px 11px;font-size:11px;white-space:nowrap}
 .daily-reports .daily-preview>p{font-size:10px;margin-top:12px}
 .daily-monthly{display:grid;gap:17px}
 .daily-month-heading{display:flex;align-items:center;gap:15px}
