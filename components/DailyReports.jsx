@@ -34,7 +34,6 @@ function Counter({label, value, onChange, disabled, note}) {
     <button type="button" aria-label={'Decrease ' + label} disabled={disabled || !value} onClick={() => onChange(Math.max(0, value - 1))}>−</button>
     <input id={id} aria-describedby={id + '-note'} type="number" min="0" step="1" value={value} disabled={disabled} onChange={e => onChange(inputNumber(e.target.value))}/>
     <button type="button" aria-label={'Increase ' + label} disabled={disabled} onClick={() => onChange(Math.min(Number.MAX_SAFE_INTEGER, value + 1))}>+</button>
-    <button type="button" aria-label={'Add ten ' + label} disabled={disabled} onClick={() => onChange(Math.min(Number.MAX_SAFE_INTEGER, value + 10))}>+10</button>
   </div><small id={id + '-note'}>{note}</small></div>;
 }
 
