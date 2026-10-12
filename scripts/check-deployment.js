@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-const required=['app/page.jsx','app/layout.jsx','app/globals.css','app/api/config/route.js','app/api/dashboard/route.js','app/api/drilldown/route.js','app/api/snapshot/route.js','components/Dashboard.jsx','components/ChartPanel.jsx','components/ProductView.jsx','components/ProductCatalog.jsx','components/ProductRankings.jsx','components/ReportFilters.jsx','lib/report-filters.js','lib/product-rankings.js','lib/product-explorer.js','lib/product-liquidity.js','components/LiquidityBadge.jsx','lib/dashboard-session.js','lib/api.js','lib/analytics.js','lib/sheets.js','next.config.mjs','package.json','package-lock.json','vercel.json'];
+const required=['app/page.jsx','app/layout.jsx','app/globals.css','app/api/config/route.js','app/api/dashboard/route.js','app/api/drilldown/route.js','app/api/snapshot/route.js','app/api/daily-reports/route.js','components/Dashboard.jsx','components/ChartPanel.jsx','components/ProductView.jsx','components/ProductCatalog.jsx','components/ProductRankings.jsx','components/ReportFilters.jsx','lib/report-filters.js','lib/product-rankings.js','lib/product-explorer.js','lib/product-liquidity.js','components/LiquidityBadge.jsx','lib/dashboard-session.js','lib/api.js','lib/analytics.js','lib/sheets.js','lib/daily-reports.js','lib/daily-server.js','lib/field-server.js','next.config.mjs','package.json','package-lock.json','vercel.json'];
 required.forEach(file=>assert.ok(fs.existsSync(file),'Missing Next.js deployment file: '+file));
 const publisher=fs.readFileSync('Commit-and-Push.cmd','utf8');
 const manifest=publisher.match(/\$appFiles\s*=\s*@\(([\s\S]*?)\r?\n\)/);

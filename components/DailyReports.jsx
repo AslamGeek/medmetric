@@ -6,6 +6,27 @@ import {WORK_PLACES, blankDailyRecord, calculateDailyReport, eveningReport, expo
 
 const number = value => new Intl.NumberFormat('en-IN').format(value);
 const inputNumber = value => Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(Number(String(value).replaceAll(',', '')) || 0)));
+async function dailyApi(body){
+  const response=await fetch('/api/daily-reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+  let result;try{result=await response.json();}catch{throw new Error('Google Sheets returned an invalid response.');}
+  if(!response.ok)throw new Error(result.error||'Could not sync daily reports.');
+  return result;
+}
+function mergeDailyRecords(data,records){
+  const merged={...data.records};
+  for(const cloud of records){
+    const local=merged[cloud.dateKey];
+    if(!local||(cloud.updatedAt&&(!local.updatedAt||cloud.updatedAt>local.updatedAt)))merged[cloud.dateKey]=cloud;
+  }
+  return {...data,records:merged};
+}
+function mergeDailyConfiguration(data,configuration){return configuration?{...data,...configuration}:data;}
+async function uploadDailyRecords(records,configuration){
+  const saved=[];let savedConfiguration=configuration;
+  if(!records.length){const result=await dailyApi({action:'save',records:[],configuration});return {records:[],configuration:result.configuration||savedConfiguration};}
+  for(let i=0;i<records.length;i+=25){const result=await dailyApi({action:'save',records:records.slice(i,i+25),configuration});saved.push(...result.records);savedConfiguration=result.configuration||savedConfiguration;}
+  return {records:saved,configuration:savedConfiguration};
+}
 
 function Counter({label, value, onChange, disabled, note}) {
   const id = 'daily-counter-' + label.toLowerCase().replaceAll(' ', '-');
@@ -18,41 +39,68 @@ function Counter({label, value, onChange, disabled, note}) {
 }
 
 export default function DailyReports({visible}) {
-  const [data, setData] = useState(null), [loadError, setLoadError] = useState('');
+  const [data, setData] = useState(null), [loadError, setLoadError] = useState(''),[syncStatus,setSyncStatus]=useState('syncing');
   const [dateKey, setDateKey] = useState(''), [today, setToday] = useState(''), [tab, setTab] = useState('morning');
   const [month, setMonth] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [copying, setCopying] = useState(false), [copied, setCopied] = useState(false);
-  const current = useRef(null), dirty = useRef(false), timer = useRef(null), activeDate = useRef(''), todayRef = useRef('');
+  const current = useRef(null), dirty = useRef(false), dirtyDate = useRef(''), timer = useRef(null), activeDate = useRef(''), todayRef = useRef(''),syncQueue=useRef(Promise.resolve()),syncJob=useRef(null);
   const noticeTimer = useRef(null);
 
   const announce = useCallback(message => {
     setNotice(message); clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(''), 5000);
   }, []);
+  const enqueueUpload=useCallback(records=>{
+    const task=syncQueue.current.catch(()=>{}).then(()=>uploadDailyRecords(records));syncQueue.current=task;return task;
+  },[]);
+  const synchronize=useCallback(()=>{
+    if(!current.current)return Promise.resolve(false);
+    if(syncJob.current)return syncJob.current;
+    const task=(async()=>{
+      try{
+        setSyncStatus('syncing');
+        const remote=await dailyApi({action:'read'});
+        let merged=mergeDailyConfiguration(mergeDailyRecords(current.current,remote.records),remote.configuration);
+        current.current=saveReportData(window.localStorage,merged);setData(current.current);
+        const uploaded=await enqueueUpload(Object.values(current.current.records),current.current);
+        merged=mergeDailyConfiguration(mergeDailyRecords(current.current,uploaded.records),uploaded.configuration);
+        current.current=saveReportData(window.localStorage,merged);setData(current.current);setSyncStatus('saved');return true;
+      }catch{setSyncStatus('pending');return false;}
+    })().finally(()=>{syncJob.current=null;});
+    syncJob.current=task;return task;
+  },[enqueueUpload]);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     if (!dirty.current || !current.current) return true;
     try {
       saveReportData(window.localStorage, current.current);
-      dirty.current = false; setError('');return true;
+      dirty.current = false; setError('');
+      const dateKey=dirtyDate.current;dirtyDate.current='';
+      const record=dateKey&&current.current.records[dateKey];
+      if(record){setSyncStatus('syncing');enqueueUpload([record],current.current).then(uploaded=>{
+        current.current=saveReportData(window.localStorage,mergeDailyConfiguration(mergeDailyRecords(current.current,uploaded.records),uploaded.configuration));
+        setData(current.current);setSyncStatus('saved');
+      }).catch(()=>setSyncStatus('pending'));}
+      return true;
     } catch {
       setError('Your changes could not be saved in this browser. Keep this page open, retry saving, or download a backup.'); return false;
     }
-  }, []);
+  }, [enqueueUpload]);
   const change = useCallback(updater => {
     const next = updater(current.current);
-    current.current = next; dirty.current = true; setData(next); setError(''); setCopied(false);
+    current.current = next; dirty.current = true; dirtyDate.current=activeDate.current; setData(next); setError(''); setCopied(false);
     clearTimeout(timer.current); timer.current = setTimeout(flush, 1000);
   }, [flush]);
   const initialize = useCallback(() => {
     try {
       const loaded = loadReportData(window.localStorage), day = reportToday();
       current.current = loaded; dirty.current = false; activeDate.current = day; todayRef.current = day;
-      setData(loaded); setDateKey(day); setToday(day); setMonth(day.slice(0, 7)); setLoadError('');
+      setData(loaded); setDateKey(day); setToday(day); setMonth(day.slice(0, 7)); setLoadError('');setSyncStatus('syncing');
+      synchronize();
     } catch {
       setLoadError('Your local daily reports could not be read. Enable browser storage and retry.');
     }
-  }, []);
+  }, [synchronize]);
   useEffect(() => {initialize(); return () => {clearTimeout(timer.current); clearTimeout(noticeTimer.current);};}, [initialize]);
   useEffect(() => {
     function rollover() {
@@ -64,14 +112,16 @@ export default function DailyReports({visible}) {
         announce('Date updated to ' + reportDateLabel(day) + '.');
       }
     }
-    function visibilityChange() {if (document.visibilityState === 'hidden') flush(); else rollover();}
+    function visibilityChange() {if (document.visibilityState === 'hidden') flush(); else {rollover();synchronize();}}
     function beforeUnload(event) {if (!flush()) {event.preventDefault(); event.returnValue = '';}}
     const interval = setInterval(rollover, 20000);
-    window.addEventListener('focus', rollover); window.addEventListener('pagehide', flush); window.addEventListener('beforeunload', beforeUnload);
+    const retryInterval=setInterval(()=>{if(syncStatus==='pending')synchronize();},60000);
+    function focus(){rollover();synchronize();}
+    window.addEventListener('focus', focus);window.addEventListener('online',synchronize); window.addEventListener('pagehide', flush); window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('visibilitychange', visibilityChange);
-    return () => {clearInterval(interval); window.removeEventListener('focus', rollover); window.removeEventListener('pagehide', flush);
-      window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('visibilitychange', visibilityChange);};
-  }, [flush, announce]);
+    return () => {clearInterval(interval); window.removeEventListener('focus', focus);window.removeEventListener('online',synchronize); window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('visibilitychange', visibilityChange);clearInterval(retryInterval);};
+  }, [flush, announce, synchronize, syncStatus]);
   useEffect(() => {if (!visible) flush();}, [visible, flush]);
 
   function switchDate(next) {
@@ -133,6 +183,7 @@ export default function DailyReports({visible}) {
   return <section className="daily-reports" aria-label="Daily field reports">
     {error && <div className="daily-error" role="alert"><p>{error}</p><button className="button" onClick={flush}>Retry saving</button><button className="button" onClick={downloadBackup}>Download backup</button></div>}
     {notice && <p className="daily-notice" role="status">{notice}</p>}
+    <p className={'daily-sync-status '+syncStatus} role="status">{syncStatus==='saved'?'Saved to Google Sheets':syncStatus==='syncing'?'Syncing daily reports with Google Sheets…':'Saved on this device · Google Sheets sync pending; it will retry when connected.'}</p>
     <div className="daily-tabs" role="tablist" aria-label="Daily report screens">{[['morning', '☀', 'Morning'], ['evening', '☾', 'Evening'], ['monthly', '▦', 'Monthly history']].map(([key, symbol, title]) => <button key={key} role="tab" id={'daily-tab-' + key} aria-selected={tab === key} aria-controls={'daily-panel-' + key} tabIndex={tab === key ? 0 : -1} onKeyDown={e => {const tabs = ['morning', 'evening', 'monthly']; let target; if (e.key === 'ArrowRight') target = tabs[(tabs.indexOf(key) + 1) % 3]; if (e.key === 'ArrowLeft') target = tabs[(tabs.indexOf(key) + 2) % 3]; if (e.key === 'Home') target = tabs[0]; if (e.key === 'End') target = tabs[2]; if (target) {e.preventDefault(); setTab(target); setCopied(false); document.getElementById('daily-tab-' + target)?.focus();}}} onClick={() => {setTab(key); setCopied(false);}}><span aria-hidden="true">{symbol}</span>{title}</button>)}</div>
     {tab !== 'monthly' ? <div role="tabpanel" id={'daily-panel-' + tab} aria-labelledby={'daily-tab-' + tab} className="daily-report-grid">
       <section className="panel daily-entry"><div className="daily-panel-heading"><div><p className="daily-eyebrow">{tab === 'morning' ? 'PLAN YOUR DAY' : 'TODAY’S ACTIVITY'}</p><h2>{tab === 'morning' ? 'Morning details' : 'Evening details'}</h2></div><span className="daily-week">{week.weekOrdinal} week</span></div>

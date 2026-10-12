@@ -8,6 +8,9 @@
 .daily-error{display:flex;align-items:center;flex-wrap:wrap;gap:9px;background:#fff1ee;border:1px solid #efceca;border-radius:9px;padding:13px;color:#943b32}
 .daily-error p{font-size:12px;flex:1 1 300px;margin:0}
 .daily-notice{margin:0;background:var(--daily-paper);border:1px solid var(--daily-border);border-radius:8px;padding:11px 14px;font-size:12px;color:var(--daily-ink)}
+.daily-sync-status{margin:0;padding:8px 11px;border-radius:7px;background:#eef5ff;color:#315b8a;font-size:10px}
+.daily-sync-status.saved{background:#edf8f0;color:#28633b}
+.daily-sync-status.pending{background:#fff5e6;color:#805e21}
 .daily-tabs{display:flex;gap:4px;background:#e9eef5;border:1px solid var(--daily-border);padding:4px;border-radius:11px;width:fit-content}
 .daily-tabs button{display:flex;align-items:center;gap:8px;min-height:43px;padding:10px 21px;border:0;background:transparent;color:#62748c;border-radius:7px;font-size:12px;font-weight:600}
 .daily-tabs button[aria-selected=true]{background:var(--daily-paper);color:var(--daily-blue);box-shadow:0 2px 7px #233f6915}
