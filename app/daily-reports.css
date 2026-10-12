@@ -45,6 +45,14 @@
 .daily-monthly{display:grid;gap:17px}
 .daily-month-heading{display:flex;align-items:center;gap:15px}
 .daily-month-heading h2{flex:1;font-size:19px}
+.daily-camp-recurrence .daily-panel-heading{align-items:center;margin-bottom:14px}
+.daily-camp-recurrence .daily-panel-heading h2{margin:0;font-size:17px}
+.daily-camp-recurrence .daily-panel-heading p{margin:5px 0 0;font-size:10px}
+.daily-camp-recurrence th,.daily-camp-recurrence td{padding:12px 10px;border-color:var(--daily-border);color:var(--daily-ink)}
+.daily-camp-recurrence th{background:var(--daily-bg);color:var(--daily-muted)}
+.daily-camp-recurrence td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
+.daily-camp-status{display:inline-block;background:#eaf3ff;color:#285b9e;border-radius:6px;padding:5px 8px;font-size:10px;font-weight:600;white-space:nowrap}
+.daily-camp-status.due{background:#fff0e8;color:#a34b20}
 .daily-reports .daily-month-picker{font-size:10px;color:var(--daily-muted)}
 .daily-month-picker input{margin-top:3px!important;min-height:36px!important;font-size:12px!important}
 .daily-month-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}
